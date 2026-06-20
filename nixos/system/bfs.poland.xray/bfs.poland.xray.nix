@@ -72,6 +72,14 @@ in {
     hostName = jitsiHost;
   };
 
+  # NOTE(yukkop): disk was provisioned outside disko, so the expected partition
+  # label does not exist. Pin root to the live filesystem UUID so stage 1 can
+  # mount `/` reliably.
+  fileSystems."/" = lib.mkForce {
+    device = "/dev/disk/by-uuid/06b48ef1-a1eb-428d-821c-90c96a624542";
+    fsType = "ext4";
+  };
+
   security.acme = {
     acceptTerms = true;
     defaults.email = "security@bfs.band";
