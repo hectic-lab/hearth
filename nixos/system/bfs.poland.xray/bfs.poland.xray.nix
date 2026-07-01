@@ -9,17 +9,11 @@
   config,
   ...
 }: let
-  matrixBackend = "https://128.140.75.58";
   matrixHost = "accord.tube";
   jitsiHost = "meet.accord.tube";
   elementEntryDomain = "element.bfs.band";
   polandEntryDomain = "bfs.band";
   matrixClusterSopsFile = flake + "/sus/matrix-cluster.yaml";
-  backendProxyConfig = ''
-    proxy_ssl_server_name on;
-    proxy_ssl_name ${matrixHost};
-    proxy_set_header Host ${matrixHost};
-  '';
 in {
   imports = [
     self.nixosModules.xray-system
@@ -47,7 +41,6 @@ in {
       credentialsFile = config.sops.secrets."matrix/object-storage/credentials".path;
     };
     replication = {
-      peerHost     = "128.140.75.58";
       passwordFile = config.sops.secrets."matrix/postgres-replication-password".path;
     };
     acme = {
@@ -133,19 +126,17 @@ in {
       };
 
       locations."= /livekit/jwt" = {
-        proxyPass = "${matrixBackend}/livekit/jwt";
-        extraConfig = backendProxyConfig;
+        proxyPass = "http://[::1]:${toString config.services.lk-jwt-service.port}/";
       };
 
       locations."^~ /livekit/jwt/" = {
-        proxyPass = "${matrixBackend}/livekit/jwt/";
-        extraConfig = backendProxyConfig;
+        proxyPass = "http://[::1]:${toString config.services.lk-jwt-service.port}/";
       };
 
       locations."= /livekit/sfu" = {
-        proxyPass = "${matrixBackend}/livekit/sfu";
+        proxyPass = "http://[::1]:${toString config.services.livekit.settings.port}/";
         proxyWebsockets = true;
-        extraConfig = backendProxyConfig + ''
+        extraConfig = ''
           proxy_send_timeout 120;
           proxy_read_timeout 120;
           proxy_buffering off;
@@ -156,9 +147,9 @@ in {
       };
 
       locations."^~ /livekit/sfu/" = {
-        proxyPass = "${matrixBackend}/livekit/sfu/";
+        proxyPass = "http://[::1]:${toString config.services.livekit.settings.port}/";
         proxyWebsockets = true;
-        extraConfig = backendProxyConfig + ''
+        extraConfig = ''
           proxy_send_timeout 120;
           proxy_read_timeout 120;
           proxy_buffering off;
@@ -169,13 +160,14 @@ in {
       };
 
       locations."^~ /_matrix/" = {
-        proxyPass = "${matrixBackend}/_matrix/";
-        extraConfig = backendProxyConfig;
+        proxyPass = "http://127.0.0.1:8008";
+        extraConfig = ''
+          client_max_body_size ${config.hectic.generic.matrix-cluster.maxUploadSize};
+        '';
       };
 
       locations."^~ /_synapse/client/" = {
-        proxyPass = "${matrixBackend}/_synapse/client/";
-        extraConfig = backendProxyConfig;
+        proxyPass = "http://127.0.0.1:8008";
       };
     };
 
