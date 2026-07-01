@@ -250,6 +250,7 @@ in {
       # failover flip does not need a separate provisioning step.
       systemd.tmpfiles.rules = [
         "d /var/lib/matrix-synapse 0750 matrix-synapse matrix-synapse -"
+        "Z ${s3Cfg.mediaStorePath} 0700 matrix-synapse matrix-synapse -"
       ];
 
       systemd.services.matrix-cluster-signing-key = {
