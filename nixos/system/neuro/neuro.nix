@@ -17,6 +17,11 @@
 
   ollamaServiceBundledLibraryPath = "${ollamaPrebuilt}/lib/ollama:${ollamaPrebuilt}/lib/ollama/cuda_v12:${ollamaPrebuilt}/lib/ollama/cuda_v13";
 
+  stableVideoDiffusionLibraryPath = lib.makeLibraryPath [
+    pkgs.stdenv.cc.cc.lib
+    pkgs.zlib
+  ];
+
   ollamaPrebuilt = pkgs.stdenvNoCC.mkDerivation {
     pname = "ollama";
     version = "0.22.1";
@@ -173,6 +178,19 @@ in {
       OLLAMA_NEW_ENGINE = "true";
     };
     loadModels = [ "qwen3.6:27b" "qwen3.5:9b" "gemma3:4b" "gpt-oss:20b" ];
+    openFirewall = false;
+  };
+
+  hectic.services.stable-video-diffusion = {
+    enable       = true;
+    host         = "127.0.0.1";
+    port         = 7861;
+    package      = pkgs.hectic.stable-video-diffusion-api;
+    device       = "cuda";
+    libraryPath  = [
+      stableVideoDiffusionLibraryPath
+      "/run/opengl-driver/lib"
+    ];
     openFirewall = false;
   };
 

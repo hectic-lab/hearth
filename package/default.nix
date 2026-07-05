@@ -174,5 +174,6 @@ in {
   pg-15-ext-smtp-client        = buildSmtpExt      pkgs "15";
   pg-15-ext-plhaskell          = buildPlHaskellExt pkgs "15";
   pg-15-ext-plsh               = buildPlShExt      pkgs "15";
+  stable-video-diffusion-api   = pkgs.callPackage ./stable-video-diffusion-api {};
   media-browser                = pkgs.callPackage ./media-browser {};
 }

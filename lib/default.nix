@@ -26,12 +26,39 @@
     "aarch64-darwin"
   ];
 
+  cudaUnfreeNames = [
+    "cuda_nvcc"
+    "cuda_cudart"
+    "cuda_cuobjdump"
+    "cuda_cupti"
+    "cuda_nvdisasm"
+    "cuda_cccl"
+    "cuda_nvml_dev"
+    "cuda_nvrtc"
+    "cuda_nvtx"
+    "cuda_profiler_api"
+
+    "libcusparse_lt"
+    "libcublas"
+    "libcufft"
+    "libcufile"
+    "libcurand"
+    "libcusolver"
+    "libnvjitlink"
+    "libcusparse"
+    "cudnn"
+  ];
+
+  cudaUnfreePredicate = pkg:
+    builtins.elem (nixpkgs.lib.getName pkg) cudaUnfreeNames;
+
   forSystemsWithPkgs = supportedSystems: pkgOverlays: f:
     builtins.foldl' (
       acc: system: let
         pkgs = import nixpkgs {
           inherit system;
           overlays = pkgOverlays;
+          config.allowUnfreePredicate = cudaUnfreePredicate;
         };
         systemOutputs = f {
           system = system;
@@ -58,7 +85,7 @@
     else {};
 in {
   # -- For all systems --
-  inherit dotEnv minorEnvironment parseEnv forAllSystemsWithPkgs forSystemsWithPkgs commonSystems AllSystems;
+  inherit dotEnv minorEnvironment parseEnv forAllSystemsWithPkgs forSystemsWithPkgs commonSystems AllSystems cudaUnfreeNames cudaUnfreePredicate;
 
   forSystems = systems: nixpkgs.lib.genAttrs systems;
   forAllSystems = nixpkgs.lib.genAttrs AllSystems;
