@@ -132,6 +132,7 @@ in {
   github-gh-tl                 = pkgs.callPackage ./github/gh-tl.nix                  {};
   supabase-with-env-collection = pkgs.callPackage ./supabase-with-env-collection.nix  {};
   migration-name               = pkgs.callPackage ./migration-name.nix                {};
+  plgo                         = pkgs.callPackage ./plgo                              {};
   pg-from                      = pkgs.callPackage ./postgres/pg-from/default.nix      rust.commonArgs;
   pg-schema                    = pkgs.callPackage ./postgres/pg-schema/default.nix    rust.commonArgs;
   pg_wdumpall                  = pkgs.callPackage ./postgres/pg_wdumpall.nix          rust.commonArgs; 
