@@ -1,0 +1,19 @@
+[package]
+name = "which-country-rs"
+version = "1.0.0"
+edition = "2024"
+description = "CLI tool that detects your country by IP and renders an ASCII map"
+license = "MIT"
+repository = "https://github.com/krisfur/which-country-rs"
+keywords = ["cli", "geolocation", "ascii", "map"]
+categories = ["command-line-utilities"]
+
+[features]
+default = ["geoip"]
+geoip = ["reqwest"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.13", features = ["blocking", "json"], optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

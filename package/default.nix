@@ -149,6 +149,7 @@ in {
   deploy                       = pkgs.callPackage ./deploy                            { inherit inputs; };
   element-web                  = pkgs.callPackage ./element-web                       {};
   shellplot                    = pkgs.callPackage ./shellplot                         {};
+  which-country-rs             = pkgs.callPackage ./which-country-rs                  {};
   onlinepubs2man               = pkgs.callPackage ./onlinepubs2man                    {};
   migrator                     = pkgs.callPackage ./migrator                          { inherit self; };
   "parse-uri"                  = pkgs.callPackage ./parse-uri                        {};
