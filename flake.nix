@@ -42,6 +42,10 @@
       url = "github:nix-community/home-manager/release-25.11";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nix-darwin = {
+      url = "github:nix-darwin/nix-darwin/nix-darwin-25.11";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     nixos-wsl = {
       url = "github:nix-community/NixOS-WSL";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -122,6 +126,9 @@
       "wsl|x86_64-linux"        = import ./nixos/system/wsl         { inherit flake self inputs; system = "x86_64-linux"; };
       "tenix|x86_64-linux"      = import ./nixos/system/tenix       { inherit flake self inputs; system = "x86_64-linux"; };
       "hectic-lab|x86_64-linux" = import ./nixos/system/hectic-lab  { inherit flake self inputs; system = "x86_64-linux"; };
+    };
+    darwinConfigurations = {
+      "yukkop|aarch64-darwin" = import ./darwin/system/yukkop { inherit flake self inputs; system = "aarch64-darwin"; };
     };
   };
 }
