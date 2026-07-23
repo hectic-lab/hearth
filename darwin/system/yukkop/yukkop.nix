@@ -5,6 +5,7 @@
 }: let
   name = "yukkop";
 in {
+  system.primaryUser = name;
   nix.settings.experimental-features = "nix-command flakes";
 
   programs.zsh.enable = true;
@@ -21,9 +22,22 @@ in {
   environment.systemPackages = with pkgs; [
     aerospace
     git
+    moreutils
     neovim
     tmux
   ];
+
+  launchd.user.agents.aerospace = {
+    serviceConfig = {
+      ProgramArguments = [
+        "${pkgs.aerospace}/Applications/AeroSpace.app/Contents/MacOS/AeroSpace"
+      ];
+      RunAtLoad = true;
+      KeepAlive = true;
+      StandardOutPath = "/tmp/aerospace.out.log";
+      StandardErrorPath = "/tmp/aerospace.err.log";
+    };
+  };
 
   home-manager.useGlobalPkgs = true;
   home-manager.useUserPackages = true;
@@ -34,6 +48,7 @@ in {
     home.packages = with pkgs; [
       iproute2mac
       jujutsu
+      ripgrep
     ];
 
     programs.git = {
@@ -61,6 +76,7 @@ in {
       shellAliases = {
         drs = "darwin-rebuild switch --flake ~/pj/hearth#'yukkop|aarch64-darwin'";
         nv = "nvim";
+        tmux = "tmux a";
       };
 
       initContent = ''
@@ -70,14 +86,35 @@ in {
 
     programs.tmux = {
       enable = true;
+      plugins = with pkgs.tmuxPlugins; [ resurrect continuum ];
       keyMode = "vi";
       escapeTime = 500;
       historyLimit = 50000;
       newSession = true;
+      extraConfig = ''
+        # resurrect
+        set -g @resurrect-strategy-vim 'session'
+        set -g @resurrect-strategy-nvim 'session'
+        set -g @resurrect-capture-pane-contents 'on'
+
+        resurrect_dir="$HOME/.tmux/resurrect"
+        set -g @resurrect-dir $resurrect_dir
+        set -g @resurrect-hook-post-save-all 'target=$(readlink -f $resurrect_dir/last); sed "s| --cmd .*-vim-pack-dir||g; s|/etc/profiles/per-user/$USER/bin/||g; s|/home/$USER/.nix-profile/bin/||g" $target | sponge $target'
+
+        # continuum
+        set -g @continuum-restore 'on'
+        set -g @continuum-boot 'on'
+        set -g @continuum-save-interval '10'
+
+        bind-key    -T copy-mode-vi v                  send-keys -X begin-selection
+        bind-key    -T copy-mode-vi C-v                send-keys -X rectangle-toggle
+
+        bind-key O select-pane -t :.-
+      '';
     };
 
     xdg.configFile."aerospace/aerospace.toml".text = ''
-      start-at-login = true
+      start-at-login = false
 
       enable-normalization-flatten-containers = true
       enable-normalization-opposite-orientation-for-nested-containers = true
