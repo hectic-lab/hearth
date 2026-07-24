@@ -434,6 +434,8 @@ migrate_down() {
     target_migration=$(printf '%s' "$fs_migrations" | sed -n "${target_line}p")
     printf '%s' "$target_migration"
   fi
+
+  return 0
 }
 
 migrate_up() {
@@ -488,6 +490,7 @@ migrate_up() {
   fi
   
   printf '%s' "$target_migration"
+  return 0
 }
 
 migrate_to() {
@@ -518,6 +521,8 @@ migrate_to() {
       printf '%s' "$migration_name"
       ;;
   esac
+
+  return 0
 }
 
 migration_list() {
@@ -566,7 +571,10 @@ index_of() {
 
   # no subshell, no pipeline
   while IFS= read -r m; do
-    [ "$m" = "$name" ] && { printf '%s\n' "$i"; return 0; }
+    if [ "$m" = "$name" ]; then
+      printf '%s\n' "$i"
+      return 0
+    fi
     i=$((i+1))
   done <<EOF
 $list
@@ -697,14 +705,20 @@ migrate() {
   log info "Migration history validation: ${GREEN}OK${NC} (${WHITE}$i${NC} migrations match)"
 
   eval "set -- $MIGRATOR_REMAINING_ARS"
-  target_migration="$("migrate_$MIGRATE_SUBCOMMAND" "$@")"
+  if ! target_migration="$("migrate_$MIGRATE_SUBCOMMAND" "$@")"; then
+    log error "failed to resolve migration target for ${WHITE}migrate $MIGRATE_SUBCOMMAND${NC}"
+    exit 1
+  fi
 
   if [ -z "$db_migrations" ]; then
     log info "starting from clean migration state"
     current_idx=0
   else
     current_migration=$(printf '%s\n' "$db_migrations" | tail -n1)
-    current_idx=$(index_of "$fs_migrations" "$current_migration")
+    if ! current_idx=$(index_of "$fs_migrations" "$current_migration"); then
+      log error "current database migration is missing from filesystem: ${WHITE}$current_migration${NC}"
+      exit 2
+    fi
   fi
 
   log debug "filesystem migrations: ${WHITE}$fs_migrations${NC}"
@@ -713,7 +727,10 @@ migrate() {
   if [ -z "$target_migration" ]; then
     target_idx=0
   else
-    target_idx=$(index_of "$fs_migrations" "$target_migration")
+    if ! target_idx=$(index_of "$fs_migrations" "$target_migration"); then
+      log error "target migration is missing from filesystem: ${WHITE}$target_migration${NC}"
+      exit 2
+    fi
   fi
 
   log debug "migration indexes: current=${WHITE}$current_idx${NC} target=${WHITE}$target_idx${NC}"

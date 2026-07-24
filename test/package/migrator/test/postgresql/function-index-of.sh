@@ -24,6 +24,14 @@ if [ "$answer" -ne 4 ]; then
   exit 1
 fi
 
+log notice "test case: ${WHITE}unguarded assignment under errexit"
+answer=$(index_of "$array" 'item4')
+
+if [ "$answer" -ne 4 ]; then
+  log error "test failed: ${WHITE}wrong answer from unguarded assignment"
+  exit 1
+fi
+
 log notice "test case: ${WHITE}error: item not found"
 if answer=$(index_of "$array" 'item10'); then
   log error "test failed: ${WHITE} must return an error"
