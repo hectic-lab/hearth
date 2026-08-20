@@ -44,6 +44,11 @@ let
       group = "ente";
     };
   };
+  giteaRunnerInstance = "hectic-lab-local";
+  giteaRunnerEscapedInstance = builtins.replaceStrings [ "-" ] [ "\\x2d" ] giteaRunnerInstance;
+  giteaRunnerService = "gitea-runner-${giteaRunnerEscapedInstance}";
+  giteaRunnerTokenEnvService = "${giteaRunnerService}-token-env";
+  giteaRunnerTokenEnv = "/run/gitea-runner-${giteaRunnerInstance}/token.env";
 in {
   imports = [
     self.nixosModules.hectic
@@ -126,6 +131,10 @@ in {
       };
       "atticd/environment" = {};
       "wg-bfs/private-key" = {};
+      "gitea-runner/org-registration-token" = {
+        sopsFile = flake + "/sus/gitea-runners.yaml";
+        key      = "gitea/hectic-lab/org-runner-registration-token";
+      };
     } // builtins.listToAttrs (map mkEnteSecret [
       "key-encryption"
       "key-hash"
@@ -209,6 +218,36 @@ in {
     "d /var/www/store 0755 nginx nginx -"
   ];
 
+  systemd.services.${giteaRunnerTokenEnvService} = {
+    description = "Prepare local Gitea Actions runner token environment";
+    requiredBy  = [ "${giteaRunnerService}.service" ];
+    before      = [ "${giteaRunnerService}.service" ];
+    serviceConfig = {
+      Type             = "oneshot";
+      RemainAfterExit  = true;
+      RuntimeDirectory = "gitea-runner-${giteaRunnerInstance}";
+      RuntimeDirectoryMode = "0700";
+    };
+    script = ''
+      set -eu
+      umask 077
+      token_file=${config.sops.secrets."gitea-runner/org-registration-token".path}
+      env_file=${giteaRunnerTokenEnv}
+
+      printf 'TOKEN=' > "$env_file"
+      tr -d '\n' < "$token_file" >> "$env_file"
+      printf '\n' >> "$env_file"
+    '';
+  };
+
+  systemd.services.${giteaRunnerService} = {
+    after = [
+      "gitea.service"
+      "${giteaRunnerTokenEnvService}.service"
+    ];
+    requires = [ "${giteaRunnerTokenEnvService}.service" ];
+  };
+
   services.nginx = {
     enable = true;
     # NOTE(yukkop): virtualHosts.${domain} is owned by the hectic-landing module
@@ -269,6 +308,7 @@ in {
       enable = true;
       package = pkgs.hectic.gitea-heatmap;
       settings.service.DISABLE_REGISTRATION = true;
+      settings.actions.ENABLED = true;
       settings.server = {
         HTTP_PORT  = 11011;
         SSH_PORT   = sshPort;
@@ -281,6 +321,28 @@ in {
         user = "gitea";
         name = "gitea";
       };
+    };
+    gitea-actions-runner.instances.${giteaRunnerInstance} = {
+      enable    = true;
+      name      = giteaRunnerInstance;
+      url       = "https://gitea.${domain}";
+      tokenFile = giteaRunnerTokenEnv;
+      labels = [
+        "nix:host"
+        "native:host"
+      ];
+      hostPackages = with pkgs; [
+        bash
+        cacert
+        coreutils
+        curl
+        git
+        gnutar
+        gzip
+        nix
+        nodejs
+        xz
+      ];
     };
   };
 }
