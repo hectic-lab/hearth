@@ -1,6 +1,6 @@
 gitea:
     hectic-lab:
-        org-runner-registration-token: ENC[AES256_GCM,data:ouupBDavLapNezKtcIViqfhsiQJTXwOL3eE9lLDutIvxk+oxOxUmbO4=,iv:Bck5ZYbDlYnBADSLk4lLtskzX3bqFCVUzj6AbWWJXBU=,tag:8y8nHDELNvlDEkrw0bwXKw==,type:str]
+        org-runner-registration-token: ENC[AES256_GCM,data:Hez1q44P/gxRfpA5Nl1bsf5Be719z/DadWyJMoghaeh+7dX3TqhFmw==,iv:ufme+uMcsI8pw5DcAlxJJKFbcj7XSg2E4MfC12U3sO0=,tag:JLyyBb5PTLY02jOGeB7EEg==,type:str]
 hetzner:
     hcloud-token: ENC[AES256_GCM,data:uvqCdk+0S3HhSeo/NlGj42ii6Q9aCKq6r0XLuoelBJA=,iv:0sDmmulU4IWIqvhS9n2BTGUutuvZq+8kqW79nBaShBk=,tag:qnQxz5j8sTP9JA5hNFWliw==,type:str]
 s3:
@@ -53,7 +53,7 @@ sops:
             UWkwVjIwTTlZaERkTUptQ2tSa29zdDQKgx7e5FQiV6fJQz8S91nKRX3m2pE04+0P
             MEP9+q3RRmrGG685/WTH8O/m/fVQx2yQ/QgJ8YBrEyVAq4jqDumAmg==
             -----END AGE ENCRYPTED FILE-----
-    lastmodified: "2026-06-07T22:55:43Z"
-    mac: ENC[AES256_GCM,data:+FNn3iLTgWF5470FCDus3uBpSir3E0nyajtwAjTj4yoVBaGk1QcFqDxA+S9wD85Ch050uHyeiR+JlApeeNltZtnidPIStQdj5tdP2UP+b2v8se4UzQyPCWTPN0wRIZ9JMubRhErZlCGovJlr5UHYdg/+gFfICPOthmFeCqEf5tM=,iv:Vq64SW0srhiappVknbdTtqichtsUDB0LeBlns43dO4Q=,tag:pVA0K2i3pP2Cpo1VSOf8dQ==,type:str]
+    lastmodified: "2026-08-21T23:21:42Z"
+    mac: ENC[AES256_GCM,data:GL21Up+r9f6BcARLFN01BRas1UCVWBGEOVer8wDWVos/UZ8ANUaix1xFqZnwtohF015SRGthfuCLq47B8iPyYeipt2XlRq1VTrCq947Bj+TMTzLqD0nwLsQoFCCGhLPMOF8cKpyZuTbDu3knhBSWUzhDr/1uCf/H0e18shObxTo=,iv:/vqgaN5lL+O6HWBCdoNbk8Bo+T3CaM9DJqMsZrDpl7I=,tag:CmWpAjnBhbh74TtN0+05aQ==,type:str]
     unencrypted_suffix: _unencrypted
     version: 3.10.2

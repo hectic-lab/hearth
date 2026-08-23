@@ -83,7 +83,6 @@
   outputs = {
     self,
     nixpkgs,
-    rust-overlay,
     ...
   }@inputs: let
     flake    = ./.;
@@ -96,13 +95,13 @@
         legacyPackages = import ./legacy { inherit system pkgs self; };
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ (import rust-overlay) ];
+          overlays = [ (import inputs.rust-overlay) ];
         };
       in
         baseOverlay // legacyPackages;
     
     overlays = [ self.overlays.default ];
-  in self-lib.forAllSystemsWithPkgs ([(import rust-overlay)] ++ overlays) ({
+  in self-lib.forAllSystemsWithPkgs ([(import inputs.rust-overlay)] ++ overlays) ({
     system,
     pkgs,
   }: {
