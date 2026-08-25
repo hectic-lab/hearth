@@ -8,7 +8,7 @@ metadata:
     app.kubernetes.io/part-of: gitea-actions
 spec:
   serviceName: gitea-runner
-  replicas: 5
+  replicas: 1
   podManagementPolicy: Parallel
   selector:
     matchLabels:

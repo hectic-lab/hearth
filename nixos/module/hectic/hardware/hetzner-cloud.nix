@@ -132,7 +132,11 @@ in {
           "${cfg.ipv6}::/64"
         ] ++ lib.optional (cfg.floatingIpv4 != null) "${cfg.floatingIpv4}/32";
         routes = [
-          { Gateway = "172.31.1.1"; GatewayOnLink = true; }
+          {
+            Gateway = "172.31.1.1";
+            GatewayOnLink = true;
+            PreferredSource = cfg.ipv4;
+          }
           { Gateway = "fe80::1"; }
         ];
       };

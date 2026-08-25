@@ -47,6 +47,9 @@ module "kube_hetzner" {
   load_balancer_location  = var.hetzner_location
   control_plane_nodepools = local.control_plane_nodepools
   agent_nodepools         = local.agent_nodepools
+  firewall_ssh_source     = var.firewall_ssh_source
+  firewall_kube_api_source = var.firewall_kube_api_source
+  hcloud_ssh_key_id       = var.hcloud_ssh_key_id
 
   # Hetzner CSI is the required StorageClass provider for runner PVCs.
   disable_hetzner_csi = false

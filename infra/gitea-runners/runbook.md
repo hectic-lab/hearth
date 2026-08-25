@@ -326,7 +326,7 @@ kubectl -n gitea-runners get pvc -l app.kubernetes.io/name=gitea-runner -o wide
 
 # Run the concurrent smoke workflows now.
 
-kubectl -n gitea-runners scale statefulset/gitea-runner --replicas=5
+kubectl -n gitea-runners scale statefulset/gitea-runner --replicas=1
 kubectl -n gitea-runners rollout status statefulset/gitea-runner --timeout=10m
 kubectl -n gitea-runners get pods -l app.kubernetes.io/name=gitea-runner -o wide
 kubectl -n gitea-runners get pvc -l app.kubernetes.io/name=gitea-runner -o wide

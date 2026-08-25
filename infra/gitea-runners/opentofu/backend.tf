@@ -1,10 +1,21 @@
 terraform {
   backend "s3" {
-    bucket       = "gitea-runner-hectic-lab"
-    key          = "gitea-runners/kube-hetzner/terraform.tfstate"
-    region       = "fsn1"
-    encrypt      = true
-    use_lockfile = true
+    bucket = "gitea-runner-hectic-lab"
+    key    = "gitea-runners/kube-hetzner/terraform.tfstate"
+    region = "hel1"
+
+    endpoints = {
+      s3 = "https://hel1.your-objectstorage.com"
+    }
+
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_region_validation      = true
+    skip_requesting_account_id  = true
+    use_path_style              = true
+    encrypt                     = false
+    skip_s3_checksum            = true
+    use_lockfile                = true
   }
 }
 

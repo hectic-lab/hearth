@@ -39,21 +39,21 @@ variable "network_region" {
 }
 
 variable "control_plane_server_type" {
-  description = "Default control-plane server type. cpx21 is small but leaves headroom for kube-system workloads."
+  description = "Default control-plane server type. cpx22 is small but leaves headroom for kube-system workloads."
   type        = string
-  default     = "cpx21"
+  default     = "cpx22"
 }
 
 variable "worker_server_type" {
-  description = "Default worker server type for the initial trusted DinD runner pool. Three cpx31 workers provide enough headroom for five privileged jobs before Task 11 scaling validation."
+  description = "Default worker server type for the budget trusted DinD runner pool. One cpx22 worker keeps the idle baseline cheap; scale out later if job pressure requires it."
   type        = string
-  default     = "cpx31"
+  default     = "cpx22"
 }
 
 variable "worker_count" {
-  description = "Fixed worker count. Increase to 5 or choose a larger worker_server_type later to target 10 concurrent DinD jobs; do not enable autoscaling in this stack."
+  description = "Fixed worker count. Default is a single cheap worker for low-cost baseline operation; increase later if concurrency requires it."
   type        = number
-  default     = 3
+  default     = 1
 
   validation {
     condition     = var.worker_count >= 1
@@ -71,4 +71,20 @@ variable "base_domain" {
   description = "Optional base domain for node reverse DNS. Empty keeps kube-hetzner defaults."
   type        = string
   default     = ""
+}
+
+variable "firewall_ssh_source" {
+  description = "CIDR ranges allowed to SSH to cluster nodes. Set explicitly; never expose SSH to the public internet."
+  type        = list(string)
+}
+
+variable "firewall_kube_api_source" {
+  description = "CIDR ranges allowed to reach the Kubernetes API. Set explicitly; never expose port 6443 to the public internet."
+  type        = list(string)
+}
+
+variable "hcloud_ssh_key_id" {
+  description = "Existing Hetzner SSH key ID. Set this when the public key is already registered in the project."
+  type        = string
+  default     = null
 }
