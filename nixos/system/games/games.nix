@@ -38,6 +38,13 @@
 
   environment.systemPackages = (with pkgs; [ rsync git steamcmd hectic.AstroTuxLauncher ]);
 
+  hectic.services."project-zomboid" = {
+    enable = true;
+    serverName = "servertest";
+    workshopItems = [ ];
+    mods = [ ];
+  };
+
   users.users.root.openssh.authorizedKeys.keys = [
     ''ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKAaObjLBslsdTlqEcYaS1TqX4x9aVJu75y27/8MFevO''
   ];
