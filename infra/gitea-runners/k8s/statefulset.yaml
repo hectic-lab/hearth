@@ -8,7 +8,8 @@ metadata:
     app.kubernetes.io/part-of: gitea-actions
 spec:
   serviceName: gitea-runner
-  replicas: 1
+  # Rollback-only pool. Keep manifest present, default replicas 0.
+  replicas: 0
   podManagementPolicy: Parallel
   selector:
     matchLabels:

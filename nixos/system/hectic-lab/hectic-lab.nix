@@ -92,6 +92,19 @@ in {
     services.matrix = {
       enable = false;
     };
+    services.gitea-runner-controller = {
+      # NOTE(yukkop): ephemeral Hetzner VM runners (1 VM = 1 job).
+      # Runbook: infra/gitea-runners/runbook.md "Ephemeral VM runner cutover".
+      enable  = true;
+      imageId = "424558114"; # MicroOS x86 + Hetzner datasource dhcpcd fix
+      allowedRepos = [
+        "hectic-lab/util.nix"
+        "hectic-lab/runner-clean"
+        "hectic-lab/runner-clean2"
+      ];
+      # FIXME(yukkop): debug key for bootstrap debugging; remove once E2E stable.
+      debugSshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJBLxMo5icX2Xyng7mcWGnIi+c4ZbVygjPhuU8noCkfZ yukkop@nixos";
+    };
   };
 
   # NOTE(yukkop): disk was provisioned by Hetzner rescue image, disko was never
@@ -294,6 +307,8 @@ in {
     virtualHosts."gitea.${domain}" = {
       enableACME = true;
       forceSSL = true;
+      # NOTE(yukkop): allow large git pushes over HTTPS.
+      extraConfig = "client_max_body_size 512m;";
       locations."/" = {
         extraConfig = ''
           proxy_pass     http://127.0.0.1:11011/;
@@ -323,7 +338,7 @@ in {
       };
     };
     gitea-actions-runner.instances.${giteaRunnerInstance} = {
-      enable    = true;
+      enable    = false;
       name      = giteaRunnerInstance;
       url       = "https://gitea.${domain}";
       tokenFile = giteaRunnerTokenEnv;

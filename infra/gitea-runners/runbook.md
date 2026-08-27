@@ -501,3 +501,117 @@ Do not release unless the following evidence files exist and are readable:
 
 If any evidence file is missing, stop and collect it before treating the runbook
 as complete.
+
+## Ephemeral VM runner cutover
+
+This section governs replacing the fixed K8s runner pool with the
+ephemeral-VM controller (`package/gitea-runner-controller`) on this host.
+The K8s pool above remains rollback-only until cutover is explicitly accepted.
+
+### Operator gates (all three required before enable)
+
+1. Secrets — add to `sus/gitea-runners.yaml` under
+   `gitea/hectic-lab/controller/*`:
+
+   ```sh
+   sops sus/gitea-runners.yaml
+   # add keys:
+   #   gitea:
+   #     hectic-lab:
+   #       controller:
+   #         hcloud-token:    <Hetzner API token, VM create/destroy scope>
+   #         webhook-secret:  <random 32+ bytes; also set as Gitea webhook secret>
+   #         admin-token:     <Gitea token with admin:runner scope for stale cleanup>
+   ```
+
+   The org registration token key
+   `gitea/hectic-lab/org-runner-registration-token` already exists and is reused.
+
+2. Base image — build the MicroOS snapshot and record its id:
+
+   ```sh
+   nix develop .#gitea-runners -c gitea-runners-build-microos-snapshots x86
+   hcloud image list --selector '' -o json | jq '.[] | select(.type=="snapshot")'
+   ```
+
+3. DNS — A record `runners.hectic-lab.com -> 128.140.75.58` (ACME needs it).
+
+### Enable
+
+```sh
+# nixos/system/hectic-lab/hectic-lab.nix: resolve the FIXME block
+hectic.services.gitea-runner-controller = {
+  enable  = true;
+  imageId = "<snapshot-id-from-gate-2>";
+};
+nixos-rebuild --target root@128.140.75.58 switch
+systemctl status gitea-runner-controller.service gitea-runner-webhook.service
+```
+
+### Register the Gitea webhook
+
+Org-level (preferred) or per-repo, on `https://gitea.hectic-lab.com`:
+
+- URL: `https://runners.hectic-lab.com/`
+- Method: `POST`, content type: JSON
+- Secret: value of `gitea/hectic-lab/controller/webhook-secret`
+- Trigger events: `Workflow jobs` only (`workflow_job`)
+
+### Pre-flight verification (before first real job)
+
+```sh
+curl -fsS https://runners.hectic-lab.com/ -o /dev/null -w '%{http_code}\n' # any 4xx from handler = reachable
+journalctl -u gitea-runner-webhook -n 20 --no-pager
+hcloud server list -o json | jq '[.[] | select(.labels["gitea-runner-controller"]=="managed")] | length' # expect 0
+```
+
+Zero managed VMs at idle is the steady-state assertion.
+
+### End-to-end acceptance (Task 9)
+
+Trigger `.gitea/workflows/runner-nix-smoke.yaml` via workflow_dispatch, then:
+
+```sh
+watch_labels() { hcloud server list -o json | jq '[.[] | select(.labels["gitea-runner-controller"]=="managed") | {id,name,labels}]'; }
+watch_labels                                   # exactly one VM while queued/running
+journalctl -f -u gitea-runner-controller       # vm-created / vm-destroyed events
+watch_labels                                   # expect [] after completion
+curl -fsS -H "Authorization: token $ADMIN" \
+  https://gitea.hectic-lab.com/api/v1/orgs/hectic-lab/actions/runners \
+  | jq '[.entries[] | select(.name | startswith("gcr-"))] | length'  # expect 0
+```
+
+Failure paths to verify identically: duplicate delivery (send same webhook twice
+via Gitea UI "Test delivery"), cancelled job, unknown-label job.
+
+### Rollback
+
+K8s rollback pool now defaults to deleted state:
+
+- `infra/gitea-runners/k8s/statefulset.yaml` keeps `replicas: 0`
+- old kube-hetzner nodes may be deleted to preserve zero idle cost
+- PVCs and IaC remain for manual rollback only
+
+Re-enable sequence:
+
+```sh
+# 1. stop ephemeral path
+sed -i 's/hectic.services.gitea-runner-controller = {.*}/\/* disabled *\//' \
+  nixos/system/hectic-lab/hectic-lab.nix   # or set enable = false
+nixos-rebuild --target root@128.140.75.58 switch
+
+# 2. reprovision old kube-hetzner nodes when they were deleted:
+tofu -chdir=infra/gitea-runners/opentofu apply
+
+# 3. restore kubeconfig / cluster access, then re-enable K8s runner pool:
+kubectl -n gitea-runners scale statefulset/gitea-runner --replicas=5
+kubectl -n gitea-runners rollout status statefulset/gitea-runner --timeout=10m
+```
+
+Any surviving ephemeral VMs after step 1 must be destroyed manually once:
+
+```sh
+hcloud server list -o json \
+  | jq -r '.[] | select(.labels["gitea-runner-controller"]=="managed") | .id' \
+  | xargs -r -n1 hcloud server delete
+```
