@@ -92,6 +92,13 @@ in {
     services.matrix = {
       enable = false;
     };
+    services."project-zomboid" = {
+      enable = true;
+      memory = "3g";
+      serverName = "servertest";
+      workshopItems = [ ];
+      mods = [ ];
+    };
     services.gitea-runner-controller = {
       # NOTE(yukkop): ephemeral Hetzner VM runners (1 VM = 1 job).
       # Runbook: infra/gitea-runners/runbook.md "Ephemeral VM runner cutover".
@@ -105,6 +112,14 @@ in {
       # FIXME(yukkop): debug key for bootstrap debugging; remove once E2E stable.
       debugSshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJBLxMo5icX2Xyng7mcWGnIi+c4ZbVygjPhuU8noCkfZ yukkop@nixos";
     };
+  };
+
+  zramSwap = {
+    enable        = true;
+    priority      = 100;
+    algorithm     = lib.mkDefault "zstd";
+    swapDevices   = 1;
+    memoryPercent = lib.mkDefault 100;
   };
 
   # NOTE(yukkop): disk was provisioned by Hetzner rescue image, disko was never

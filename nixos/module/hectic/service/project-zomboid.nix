@@ -16,10 +16,13 @@
     name: value:
       "${name}=${if builtins.isBool value then lib.boolToString value else toString value}"
   ) serverProperties;
+  adminPasswordFile = "${cfg.dataDir}/admin-password";
   startScript = pkgs.writeShellScript "project-zomboid-start" ''
-    exec ${lib.escapeShellArg "${cfg.installDir}/start-server.sh"} \
+    admin_password=$(${pkgs.coreutils}/bin/cat ${lib.escapeShellArg adminPasswordFile})
+    exec ${pkgs.steam-run}/bin/steam-run \
+      ${lib.escapeShellArg "${cfg.installDir}/start-server.sh"} \
       -servername ${lib.escapeShellArg cfg.serverName} \
-      -cachedir ${lib.escapeShellArg cfg.dataDir}
+      -adminpassword "$admin_password"
   '';
 in {
   options.hectic.services."project-zomboid" = {
@@ -59,6 +62,12 @@ in {
       type = lib.types.nullOr lib.types.str;
       default = null;
       description = "Steam beta branch, for example legacy41.";
+    };
+
+    memory = lib.mkOption {
+      type = lib.types.strMatching "[0-9]+[mMgG]";
+      default = "3g";
+      description = "Maximum Java heap for the server, for example 3g.";
     };
 
     workshopItems = lib.mkOption {
@@ -121,11 +130,18 @@ in {
       preStart = ''
         ${pkgs.coreutils}/bin/install -d -m 0750 \
           ${lib.escapeShellArg cfg.installDir}
+        if [ ! -s ${lib.escapeShellArg adminPasswordFile} ]; then
+          umask 077
+          ${pkgs.openssl}/bin/openssl rand -base64 32 > ${lib.escapeShellArg adminPasswordFile}
+        fi
         ${pkgs.steamcmd}/bin/steamcmd \
           +force_install_dir ${lib.escapeShellArg cfg.installDir} \
           +login anonymous \
           +app_update 380870 ${lib.optionalString (cfg.branch != null) "-beta ${lib.escapeShellArg cfg.branch}"} validate \
           +quit
+        ${pkgs.gnused}/bin/sed -i -E \
+          's/"-Xmx[0-9]+[mMgG]"/"-Xmx${cfg.memory}"/' \
+          ${lib.escapeShellArg "${cfg.installDir}/ProjectZomboid64.json"}
         ${pkgs.coreutils}/bin/install -d -m 0750 \
           ${lib.escapeShellArg "${cfg.dataDir}/Server"}
         {
@@ -146,7 +162,6 @@ in {
           "SteamAppId=380870"
         ];
         ExecStart = startScript;
-        ExecStop = "-${pkgs.coreutils}/bin/kill -INT $MAINPID";
         Restart = "on-failure";
         RestartSec = 5;
         TimeoutStopSec = 30;
