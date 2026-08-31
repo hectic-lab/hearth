@@ -13,7 +13,7 @@ in self.lib.nixpkgs-lib.nixosSystem {
     inherit system;
     overlays = [ self.overlays.default ];
     config.allowUnfreePredicate = pkg:
-      builtins.elem (inputs.nixpkgs.lib.getName pkg) [ "steamcmd" "steam-unwrapped" ];
+      builtins.elem (inputs.nixpkgs.lib.getName pkg) [ "steamcmd" "steam-unwrapped" "p4d" "p4" ];
   };
   modules = [
     { networking.hostName = name; }

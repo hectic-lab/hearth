@@ -8,7 +8,6 @@
   config,
   pkgs,
   lib,
-  modulesPath,
   ...
 }:
 with builtins;
@@ -98,6 +97,13 @@ in {
       serverName = "servertest";
       workshopItems = [ ];
       mods = [ ];
+    };
+    services.p4d = {
+      enable = true;
+      package = pkgs.p4d;
+      clientPackage = pkgs.p4;
+      openFirewall = true;
+      bootstrap.enable = false;
     };
     services.gitea-runner-controller = {
       # NOTE(yukkop): ephemeral Hetzner VM runners (1 VM = 1 job).
