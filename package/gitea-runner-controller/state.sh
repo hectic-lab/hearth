@@ -70,5 +70,5 @@ gcr_budget_add() {
 }
 
 gcr_active_records() {
-    grep -l '"status":"\(pending_vm\|vm_active\|deferred\)"' "$GCR_STATE_DIR"/jobs/*.json 2>/dev/null || true
+    grep -El '"status"[[:space:]]*:[[:space:]]*"(pending_vm|vm_active|deferred)"' "$GCR_STATE_DIR"/jobs/*.json 2>/dev/null || true
 }

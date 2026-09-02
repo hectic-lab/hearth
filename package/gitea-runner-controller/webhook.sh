@@ -136,7 +136,7 @@ gcr_alloc() {
         return 0
     fi
 
-    reg_token="$(gcr_gitea_registration_token)" || {
+    reg_token="$(gcr_gitea_registration_token "$repo")" || {
         gcr_record_del "$job_id" "$attempt"
         gcr_lock_release "$key"
         gcr_event "token-error" "$job_id" "{}"

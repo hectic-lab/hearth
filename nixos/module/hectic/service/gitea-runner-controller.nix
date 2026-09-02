@@ -120,13 +120,13 @@ in
       };
       actRunnerVersion = lib.mkOption {
         type = lib.types.str;
-        default = "v0.2.11";
-        description = "act_runner release tag downloaded at VM bootstrap.";
+        default = "1.0.6";
+        description = "gitea-runner release version downloaded at VM bootstrap.";
       };
       actRunnerSha256 = lib.mkOption {
         type = lib.types.str;
-        default = "7a5e833793286bbfd9b59ce682bd41fc3f1c096bae1bb2a09b66ab2f6dacf90c";
-        description = "sha256 of the pinned act_runner linux-amd64 binary, verified at bootstrap.";
+        default = "d78ac11deed6580a2d88c1ef72c522aa7e2986d2d22b0d80edbee577b8f79b20";
+        description = "sha256 of the pinned gitea-runner linux-amd64 binary, verified at bootstrap.";
       };
       nixVersion = lib.mkOption {
         type = lib.types.str;

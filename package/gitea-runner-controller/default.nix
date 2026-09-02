@@ -10,6 +10,7 @@
   gnugrep,
   gnused,
   openssl,
+  openssh,
 }:
 let
   shell = "${dash}/bin/dash";
@@ -33,6 +34,7 @@ let
     gnugrep
     gnused
     openssl
+    openssh
   ];
 
   lib = ''

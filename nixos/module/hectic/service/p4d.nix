@@ -340,6 +340,7 @@ in {
         User = serviceUser;
         Group = serviceGroup;
         WorkingDirectory = cfg.dataDir;
+        Environment = lib.mkIf cfg.ssl.enable "P4SSLDIR=${cfg.ssl.dir}";
         ExecStart = "${packageExe} ${lib.escapeShellArgs mainArgs}";
         Restart = "on-failure";
         RestartSec = "5s";

@@ -111,9 +111,9 @@ in {
       enable  = true;
       imageId = "424558114"; # MicroOS x86 + Hetzner datasource dhcpcd fix
       allowedRepos = [
-        "hectic-lab/util.nix"
-        "hectic-lab/runner-clean"
-        "hectic-lab/runner-clean2"
+        "hinterland/*"
+        "yukkop/*"
+        "hectic-lab/*"
       ];
       # FIXME(yukkop): debug key for bootstrap debugging; remove once E2E stable.
       debugSshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJBLxMo5icX2Xyng7mcWGnIi+c4ZbVygjPhuU8noCkfZ yukkop@nixos";

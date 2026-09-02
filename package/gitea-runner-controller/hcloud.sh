@@ -114,7 +114,7 @@ $(printf '%s\n' "$runner_config" | sed 's/^/      /')
   - path: /etc/systemd/system/gcr-bootstrap.service
     content: |
       [Unit]
-      Description=Bootstrap Nix + act_runner for ephemeral CI job
+      Description=Bootstrap gitea-runner for ephemeral CI job
       After=network-online.target
       Wants=network-online.target
       Before=gitea-runner.service
@@ -137,9 +137,9 @@ $(printf '%s\n' "$runner_config" | sed 's/^/      /')
       tar -xJf /tmp/nix.tar.xz -C /tmp
       /tmp/nix-$GCR_NIX_VERSION-x86_64-linux/install --no-daemon
       rm -rf /tmp/nix*
-      curl -fsSL \"https://gitea.com/gitea/act_runner/releases/download/$GCR_ACT_RUNNER_VERSION/act_runner-\$(printf '%s' \"$GCR_ACT_RUNNER_VERSION\" | sed 's/^v//')-linux-amd64\" -o /usr/local/bin/act_runner
-      printf '%s  /usr/local/bin/act_runner\n' \"$GCR_ACT_RUNNER_SHA256\" | sha256sum -c -
-      chmod 0755 /usr/local/bin/act_runner
+      curl -fsSL \"https://dl.gitea.com/gitea-runner/$GCR_ACT_RUNNER_VERSION/gitea-runner-$GCR_ACT_RUNNER_VERSION-linux-amd64\" -o /usr/local/bin/gitea-runner
+      printf '%s  /usr/local/bin/gitea-runner\n' \"$GCR_ACT_RUNNER_SHA256\" | sha256sum -c -
+      chmod 0755 /usr/local/bin/gitea-runner
       mkdir -p /var/lib/gitea-runner
 runcmd:
   - [ sh, -c, 'systemctl enable --now sshd.service 2>/dev/null || systemctl enable --now ssh 2>/dev/null || true' ]
@@ -246,9 +246,9 @@ cat > /usr/local/sbin/gcr-runner-start <<STARTEOF
 #!/bin/sh
 set -eu
 if [ ! -f /var/lib/gitea-runner/.runner ]; then
-  /usr/local/bin/act_runner register --no-interactive --instance $GCR_GITEA_URL --token $reg_token --name $runner_name --labels $label:host --config /etc/gitea-runner/config.yaml
+  /usr/local/bin/gitea-runner register --no-interactive --instance $GCR_GITEA_URL --token $reg_token --name $runner_name --labels $label:host --config /etc/gitea-runner/config.yaml
 fi
-exec /usr/local/bin/act_runner daemon --config /etc/gitea-runner/config.yaml
+exec /usr/local/bin/gitea-runner daemon --config /etc/gitea-runner/config.yaml
 STARTEOF
 chmod 0700 /usr/local/sbin/gcr-runner-start
 cat > /etc/systemd/system/gitea-runner.service <<UNITEOF
@@ -277,9 +277,9 @@ if [ "$label" = "nix" ]; then
   /tmp/nix-$GCR_NIX_VERSION-x86_64-linux/install --no-daemon
   rm -rf /tmp/nix*
 fi
-curl -fsSL "https://gitea.com/gitea/act_runner/releases/download/$GCR_ACT_RUNNER_VERSION/act_runner-\$(printf '%s' "$GCR_ACT_RUNNER_VERSION" | sed 's/^v//')-linux-amd64" -o /usr/local/bin/act_runner
-printf '%s  /usr/local/bin/act_runner\n' "$GCR_ACT_RUNNER_SHA256" | sha256sum -c -
-chmod 0755 /usr/local/bin/act_runner
+curl -fsSL "https://dl.gitea.com/gitea-runner/$GCR_ACT_RUNNER_VERSION/gitea-runner-$GCR_ACT_RUNNER_VERSION-linux-amd64" -o /usr/local/bin/gitea-runner
+printf '%s  /usr/local/bin/gitea-runner\n' "$GCR_ACT_RUNNER_SHA256" | sha256sum -c -
+chmod 0755 /usr/local/bin/gitea-runner
 INSEOF
 chmod 0700 /usr/local/sbin/gcr-install
 /usr/local/sbin/gcr-install
@@ -304,7 +304,7 @@ gcr_vm_bootstrap_ssh() {
     waited=0
     until ssh $SSH_OPTS "root@$ip" true 2>/dev/null; do
         waited=$((waited + 5))
-        [ "$waited" -ge 300 ] && {
+        [ "$waited" -ge 900 ] && {
             gcr_log warn --ns=hcloud "sshd never came up on $ip"
             rm -f "$key_tmp"
             return 1

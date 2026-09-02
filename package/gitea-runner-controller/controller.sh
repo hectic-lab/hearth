@@ -88,7 +88,7 @@ gcr_alloc_deferred() {
     [ "$repo_active" -ge "${GCR_PER_REPO_CAP:-1}" ] && return 0
 
     gcr_budget_add "$rate" "$ttl_min" || return 0
-    reg_token="$(gcr_gitea_registration_token)" || return 0
+    reg_token="$(gcr_gitea_registration_token "$repo")" || return 0
 
     key="$(gcr_alloc_key "$job_id" "$attempt")"
     gcr_lock_acquire "$key" || return 0
@@ -174,6 +174,7 @@ gcr_bootstrap_pending() {
 
         job_id="$(gcr_record_field "$rec" job_id)"
         attempt="$(gcr_record_field "$rec" run_attempt)"
+        repo="$(gcr_record_field "$rec" repo)"
         label="$(gcr_record_field "$rec" label)"
         vm_id="$(gcr_record_field "$rec" vm_id)"
         runner_name="$(gcr_record_field "$rec" vm_name)"
@@ -181,7 +182,7 @@ gcr_bootstrap_pending() {
         ip="$(gcr_vm_public_ip "$vm_id")"
         [ -n "$ip" ] || continue
 
-        reg_token="$(gcr_gitea_registration_token)" || continue
+        reg_token="$(gcr_gitea_registration_token "$repo")" || continue
         ttl_min="$(gcr_record_field "$rec" ttl_min)"
 
         gcr_log info --ns=alloc "bootstrapping vm=$vm_id ip=$ip job=$job_id"

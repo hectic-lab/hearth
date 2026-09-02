@@ -18,7 +18,13 @@ gcr_repo_allowed() {
     oldIFS="$IFS"
     IFS=,
     for allowed in ${GCR_ALLOWED_REPOS:-}; do
-        if [ "$allowed" = "$repo" ]; then
+        suffix="${allowed#*/}"
+        if [ "$suffix" = "*" ]; then
+            prefix="${allowed%/*}/"
+            case "$repo" in
+                "$prefix"*) IFS="$oldIFS"; return 0 ;;
+            esac
+        elif [ "$allowed" = "$repo" ]; then
             IFS="$oldIFS"
             return 0
         fi
