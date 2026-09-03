@@ -141,6 +141,12 @@ in {
     options = [ "umask=0077" ];
   };
 
+  fileSystems."/nix" = lib.mkForce {
+    device = "/dev/disk/by-id/scsi-0HC_Volume_106777875";
+    fsType = "ext4";
+    neededForBoot = true;
+  };
+
   programs.zsh.enable = true;
   programs.zsh.interactiveShellInit = ''
     setopt vi
