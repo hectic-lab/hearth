@@ -110,6 +110,7 @@ in {
       # Runbook: infra/gitea-runners/runbook.md "Ephemeral VM runner cutover".
       enable  = true;
       imageId = "424558114"; # MicroOS x86 + Hetzner datasource dhcpcd fix
+      armImageId = "423979717"; # OpenSUSE MicroOS ARM K3S 2026-08-24 snapshot
       allowedRepos = [
         "hinterland/*"
         "yukkop/*"

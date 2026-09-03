@@ -5,12 +5,106 @@
 # gcr_decide LABEL REPO -> prints "<server_type> <ttl_min> <rate_eur_h>" and
 # returns 0 when allowed; returns 1 with reason on stderr otherwise.
 
-gcr_label_profile() {
+gcr_server_hourly_rate() {
     case "$1" in
-        nix)           printf 'cx33 180 0.008' ;;
-        ubuntu-latest) printf 'cx33 60 0.008'  ;;
+        cx23)  printf '0.004' ;;
+        cx33)  printf '0.008' ;;
+        cx43)  printf '0.016' ;;
+        cx53)  printf '0.032' ;;
+        cax21) printf '0.003' ;;
+        cax31) printf '0.006' ;;
+        cax41) printf '0.012' ;;
+        cpx52) printf '0.036' ;;
+        cpx62) printf '0.072' ;;
         *) return 1 ;;
     esac
+}
+
+gcr_label_ttl() {
+    case "$1" in
+        ubuntu-latest)   printf '60'  ;;
+        nix)             printf '180' ;;
+        gross-x86)       printf '180' ;;
+        gross-arm)       printf '180' ;;
+        gross-x86-perf)  printf '180' ;;
+        gross-mixed-econ) printf '180' ;;
+        gross-nix-x86) printf '180' ;;
+        gross-nix-arm) printf '180' ;;
+        gross-nix-x86-perf) printf '180' ;;
+        gross-nix-mixed-econ) printf '180' ;;
+        *) return 1 ;;
+    esac
+}
+
+# gcr_label_candidates LABEL -> lines: "<server_type> <location> <arch>"
+gcr_label_candidates() {
+    label="$1"
+    case "$label" in
+        ubuntu-latest)
+            printf '%s\n' 'cx33 nbg1 amd64' 'cx33 fsn1 amd64' 'cx33 hel1 amd64'
+            ;;
+        nix)
+            printf '%s\n' 'cx33 nbg1 amd64' 'cx33 fsn1 amd64' 'cx33 hel1 amd64'
+            ;;
+        gross-x86)
+            printf '%s\n' \
+                'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64' \
+                'cx43 nbg1 amd64' 'cx43 fsn1 amd64' 'cx43 hel1 amd64' \
+                'cx33 nbg1 amd64' 'cx33 fsn1 amd64' 'cx33 hel1 amd64'
+            ;;
+        gross-arm)
+            printf '%s\n' \
+                'cax41 nbg1 arm64' 'cax41 fsn1 arm64' 'cax41 hel1 arm64' \
+                'cax31 nbg1 arm64' 'cax31 fsn1 arm64' 'cax31 hel1 arm64' \
+                'cax21 nbg1 arm64' 'cax21 fsn1 arm64' 'cax21 hel1 arm64'
+            ;;
+        gross-x86-perf)
+            printf '%s\n' \
+                'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64' \
+                'cpx62 nbg1 amd64' 'cpx62 fsn1 amd64' 'cpx62 hel1 amd64' \
+                'cpx52 nbg1 amd64' 'cpx52 fsn1 amd64' 'cpx52 hel1 amd64'
+            ;;
+        gross-mixed-econ)
+            printf '%s\n' \
+                'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64' \
+                'cax41 nbg1 arm64' 'cax41 fsn1 arm64' 'cax41 hel1 arm64' \
+                'cx43 nbg1 amd64' 'cx43 fsn1 amd64' 'cx43 hel1 amd64'
+            ;;
+        gross-nix-x86)
+            printf '%s\n' \
+                'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64' \
+                'cx43 nbg1 amd64' 'cx43 fsn1 amd64' 'cx43 hel1 amd64' \
+                'cx33 nbg1 amd64' 'cx33 fsn1 amd64' 'cx33 hel1 amd64'
+            ;;
+        gross-nix-arm)
+            printf '%s\n' \
+                'cax41 nbg1 arm64' 'cax41 fsn1 arm64' 'cax41 hel1 arm64' \
+                'cax31 nbg1 arm64' 'cax31 fsn1 arm64' 'cax31 hel1 arm64' \
+                'cax21 nbg1 arm64' 'cax21 fsn1 arm64' 'cax21 hel1 arm64'
+            ;;
+        gross-nix-x86-perf)
+            printf '%s\n' \
+                'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64' \
+                'cpx62 nbg1 amd64' 'cpx62 fsn1 amd64' 'cpx62 hel1 amd64' \
+                'cpx52 nbg1 amd64' 'cpx52 fsn1 amd64' 'cpx52 hel1 amd64'
+            ;;
+        gross-nix-mixed-econ)
+            printf '%s\n' \
+                'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64' \
+                'cax41 nbg1 arm64' 'cax41 fsn1 arm64' 'cax41 hel1 arm64' \
+                'cx43 nbg1 amd64' 'cx43 fsn1 amd64' 'cx43 hel1 amd64'
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+gcr_label_profile() {
+    label="$1"
+    ttl="$(gcr_label_ttl "$label")" || return 1
+    first="$(gcr_label_candidates "$label" | head -n1)" || return 1
+    set -- $first
+    rate="$(gcr_server_hourly_rate "$1")" || return 1
+    printf '%s %s %s' "$1" "$ttl" "$rate"
 }
 
 gcr_repo_allowed() {

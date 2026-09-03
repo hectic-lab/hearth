@@ -49,10 +49,12 @@ let
       "GCR_SSH_PRIVKEY_FILE=${config.sops.secrets."${secretPrefix}/ssh-private-key".path}"
       "GCR_NIX_VERSION=${cfg.nixVersion}"
       "GCR_NIX_TARBALL_SHA256=${cfg.nixTarballSha256}"
+      "GCR_ARM_NIX_TARBALL_SHA256=${cfg.armNixTarballSha256}"
       "GCR_ACT_RUNNER_VERSION=${cfg.actRunnerVersion}"
       "GCR_ACT_RUNNER_SHA256=${cfg.actRunnerSha256}"
     ]
-    ++ lib.optionals (cfg.imageId != null) [ "GCR_IMAGE_ID=${cfg.imageId}" ];
+    ++ lib.optionals (cfg.imageId != null) [ "GCR_IMAGE_ID=${cfg.imageId}" ]
+    ++ lib.optionals (cfg.armImageId != null) [ "GCR_ARM_IMAGE_ID=${cfg.armImageId}" ];
 in
 {
   options = {
@@ -118,6 +120,15 @@ in
           creation while null.
         '';
       };
+      armImageId = lib.mkOption {
+        type = with lib.types; nullOr str;
+        default = null;
+        example = "423979717";
+        description = ''
+          Hetzner ARM image/snapshot id for ephemeral VMs. Required for labels
+          whose fallback chain includes ARM server types.
+        '';
+      };
       actRunnerVersion = lib.mkOption {
         type = lib.types.str;
         default = "1.0.6";
@@ -137,6 +148,11 @@ in
         type = lib.types.str;
         default = "85d1847d06d5d56167796d3f61cd992908de84584db3e700da031a782b59ea22";
         description = "sha256 of the pinned Nix x86_64-linux tarball, verified at bootstrap.";
+      };
+      armNixTarballSha256 = lib.mkOption {
+        type = lib.types.str;
+        default = "3dffb118772382e35526806fb97acc05df7ad6dc29dbe52b921b77e52e39f571";
+        description = "sha256 of the pinned Nix aarch64-linux tarball, verified at bootstrap.";
       };
       debugSshPublicKey = lib.mkOption {
         type = with lib.types; nullOr str;

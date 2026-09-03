@@ -7,6 +7,14 @@
 
 GCR_API="https://api.hetzner.cloud/v1"
 
+gcr_image_id_for_arch() {
+    case "$1" in
+        amd64) [ -n "${GCR_IMAGE_ID:-}" ] && printf '%s' "$GCR_IMAGE_ID" ;;
+        arm64) [ -n "${GCR_ARM_IMAGE_ID:-}" ] && printf '%s' "$GCR_ARM_IMAGE_ID" ;;
+        *) return 1 ;;
+    esac
+}
+
 gcr_hcloud_token() {
     test -n "${HCLOUD_TOKEN_FILE:-}" && test -r "$HCLOUD_TOKEN_FILE" || {
         gcr_log error --ns=hcloud "HCLOUD_TOKEN_FILE missing or unreadable"
@@ -154,49 +162,51 @@ gcr_vm_create() {
     vm_name="$1"; label="$2"; server_type="$3"; ttl_min="$4"
     reg_token="$5"; job_id="$6"; attempt="$7"; repo="$8"
 
-    test -n "${GCR_IMAGE_ID:-}" || {
-        gcr_log error --ns=hcloud "GCR_IMAGE_ID not set; refusing VM creation"
-        return 1
-    }
-
-    userdata="$(gcr_vm_build_userdata "$vm_name" "$label" "$reg_token")"
-    payload="$(jq -n \
-        --arg name "$vm_name" \
-        --arg stype "$server_type" \
-        --arg image "$GCR_IMAGE_ID" \
-        --arg loc "${GCR_HETZNER_LOCATION:-nbg1}" \
-        --arg udata "$userdata" \
-        --arg jid "$job_id" \
-        --arg att "$attempt" \
-        --arg repo "$repo" \
-        --arg label "$label" \
-        --arg ts "$(date -u '+%s')" \
-        --arg ttl "$ttl_min" \
-        --arg repo_safe "$(printf '%s' "$repo" | tr '/:' '--')" \
-        '{name:$name, server_type:$stype, image:$image, location:$loc,
-          start_after_create:true,
-          labels:{
-            "gitea-runner-controller":"managed",
-            "gcr.job-id":$jid, "gcr.run-attempt":$att,
-            "gcr.repo":$repo_safe, "gcr.label":$label,
-            "gcr.created-at":$ts, "gcr.ttl-min":$ttl}}')"
-
-    # Hetzner placement is occasionally transient (resource_unavailable);
-    # retry a few times before giving up. NOTE: userdata/cloud-init is NOT
-    # used — bootstrap happens over SSH from the controller (see
-    # gcr_vm_bootstrap_ssh); MicroOS snapshot's Hetzner datasource cannot
-    # fetch user-data (DHCP Exception on this image lineage).
-    attempt_n=0
-    while :; do
-        attempt_n=$((attempt_n + 1))
+    ttl_min="$(gcr_label_ttl "$label")" || return 1
+    candidates="$(gcr_label_candidates "$label")" || return 1
+    candidate_n=0
+    while read -r candidate_type candidate_loc candidate_arch; do
+        [ -n "${candidate_type:-}" ] || continue
+        candidate_n=$((candidate_n + 1))
+        image_id="$(gcr_image_id_for_arch "$candidate_arch")" || {
+            gcr_log warn --ns=hcloud "skip candidate[$candidate_n] label=$label arch=$candidate_arch no image"
+            continue
+        }
+        payload="$(jq -n \
+            --arg name "$vm_name" \
+            --arg stype "$candidate_type" \
+            --arg image "$image_id" \
+            --arg loc "$candidate_loc" \
+            --arg jid "$job_id" \
+            --arg att "$attempt" \
+            --arg repo "$repo" \
+            --arg label "$label" \
+            --arg arch "$candidate_arch" \
+            --arg ts "$(date -u '+%s')" \
+            --arg ttl "$ttl_min" \
+            --arg repo_safe "$(printf '%s' "$repo" | tr '/:' '--')" \
+            '{name:$name, server_type:$stype, image:$image, location:$loc,
+              start_after_create:true,
+              labels:{
+                "gitea-runner-controller":"managed",
+                "gcr.job-id":$jid, "gcr.run-attempt":$att,
+                "gcr.repo":$repo_safe, "gcr.label":$label,
+                "gcr.arch":$arch, "gcr.location":$loc,
+                "gcr.created-at":$ts, "gcr.ttl-min":$ttl}}')"
+        gcr_log info --ns=hcloud "try candidate[$candidate_n] label=$label type=$candidate_type arch=$candidate_arch loc=$candidate_loc"
         if gcr_hcloud_req POST /servers "$payload"; then
             jq -r '.server.id' "$GCR_LAST_BODY"
             return 0
         fi
-        gcr_log warn --ns=hcloud "create attempt=$attempt_n failed"
-        [ "$attempt_n" -ge 3 ] && return 1
-        sleep $((attempt_n * 10))
-    done
+        if [ "$candidate_n" -le 3 ]; then
+            sleep 5
+        else
+            sleep 1
+        fi
+    done <<EOF
+$candidates
+EOF
+    return 1
 }
 
 # gcr_vm_destroy SERVER_ID — idempotent best-effort destroy.
@@ -270,13 +280,31 @@ UNITEOF
 cat > /usr/local/sbin/gcr-install <<INSEOF
 #!/bin/sh
 set -eu
-if [ "$label" = "nix" ]; then
-  curl -fsSL "https://releases.nixos.org/nix/nix-$GCR_NIX_VERSION/nix-$GCR_NIX_VERSION-x86_64-linux.tar.xz" -o /tmp/nix.tar.xz
-  printf '%s  /tmp/nix.tar.xz\n' "$GCR_NIX_TARBALL_SHA256" | sha256sum -c -
+case "$label" in
+  nix|gross-nix-x86|gross-nix-arm|gross-nix-x86-perf|gross-nix-mixed-econ)
+  nix_arch=""
+  nix_sha=""
+  case "$(uname -m)" in
+    x86_64)
+      nix_arch=x86_64-linux
+      nix_sha="$GCR_NIX_TARBALL_SHA256"
+      ;;
+    aarch64|arm64)
+      nix_arch=aarch64-linux
+      nix_sha="$GCR_ARM_NIX_TARBALL_SHA256"
+      ;;
+    *)
+      echo "unsupported arch for Nix bootstrap: $(uname -m)" >&2
+      exit 1
+      ;;
+  esac
+  curl -fsSL "https://releases.nixos.org/nix/nix-$GCR_NIX_VERSION/nix-$GCR_NIX_VERSION-$nix_arch.tar.xz" -o /tmp/nix.tar.xz
+  printf '%s  /tmp/nix.tar.xz\n' "$nix_sha" | sha256sum -c -
   tar -xJf /tmp/nix.tar.xz -C /tmp
-  /tmp/nix-$GCR_NIX_VERSION-x86_64-linux/install --no-daemon
+  /tmp/nix-$GCR_NIX_VERSION-$nix_arch/install --no-daemon
   rm -rf /tmp/nix*
-fi
+  ;;
+esac
 curl -fsSL "https://dl.gitea.com/gitea-runner/$GCR_ACT_RUNNER_VERSION/gitea-runner-$GCR_ACT_RUNNER_VERSION-linux-amd64" -o /usr/local/bin/gitea-runner
 printf '%s  /usr/local/bin/gitea-runner\n' "$GCR_ACT_RUNNER_SHA256" | sha256sum -c -
 chmod 0755 /usr/local/bin/gitea-runner

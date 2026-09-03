@@ -24,6 +24,7 @@ let
     "SC2086" # word splitting on purpose: env lists and profile triples
     "SC2046" # same, command substitution into set --
     "SC2329"
+    "SC2154"
   ];
 
   runtimeDeps = [
