@@ -78,6 +78,15 @@ gcr_alloc_deferred() {
     repo="$(gcr_record_field "$rec" repo)"
     label="$(gcr_record_field "$rec" label)"
 
+    state="$(gcr_gitea_job_state "$repo" "$job_id")" || return 0
+    case "$state" in
+        completed:*)
+            gcr_log info --ns=alloc "deferred job=$job_id already terminal ($state), dropping record"
+            gcr_record_del "$job_id" "$attempt"
+            return 0
+            ;;
+    esac
+
     profile="$(gcr_label_profile "$label")" || return 0
     set -- $profile
     server_type="$1"; ttl_min="$2"; rate="$3"
@@ -179,6 +188,20 @@ gcr_bootstrap_pending() {
         vm_id="$(gcr_record_field "$rec" vm_id)"
         runner_name="$(gcr_record_field "$rec" vm_name)"
 
+        state="$(gcr_gitea_job_state "$repo" "$job_id")" || continue
+        case "$state" in
+            completed:*)
+                gcr_log info --ns=sweep "pending job=$job_id already terminal ($state), destroying vm=$vm_id"
+                if [ -n "$vm_id" ] && [ "$vm_id" != "0" ] && [ "$vm_id" != "null" ]; then
+                    gcr_vm_destroy "$vm_id" || true
+                    gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"pending-job-completed\",\"state\":\"$state\"}"
+                fi
+                gcr_record_del "$job_id" "$attempt"
+                gcr_lock_release "$(gcr_alloc_key "$job_id" "$attempt")"
+                continue
+                ;;
+        esac
+
         ip="$(gcr_vm_public_ip "$vm_id")"
         [ -n "$ip" ] || continue
 
@@ -196,8 +219,38 @@ gcr_bootstrap_pending() {
     done
 }
 
+# Reap terminal jobs even when completed webhook path lags or is absent.
+gcr_reap_finished_jobs() {
+    for f in $(gcr_active_records); do
+        rec="$(cat "$f")"
+        case "$(gcr_record_field "$rec" status)" in
+            pending_vm|vm_active) ;;
+            *) continue ;;
+        esac
+
+        job_id="$(gcr_record_field "$rec" job_id)"
+        attempt="$(gcr_record_field "$rec" run_attempt)"
+        repo="$(gcr_record_field "$rec" repo)"
+        vm_id="$(gcr_record_field "$rec" vm_id)"
+
+        state="$(gcr_gitea_job_state "$repo" "$job_id")" || continue
+        case "$state" in
+            completed:*)
+                gcr_log info --ns=sweep "job=$job_id terminal ($state), destroying vm=$vm_id"
+                if [ -n "$vm_id" ] && [ "$vm_id" != "0" ] && [ "$vm_id" != "null" ]; then
+                    gcr_vm_destroy "$vm_id" || true
+                    gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"job-completed\",\"state\":\"$state\"}"
+                fi
+                gcr_record_del "$job_id" "$attempt"
+                gcr_lock_release "$(gcr_alloc_key "$job_id" "$attempt")"
+                ;;
+        esac
+    done
+}
+
 gcr_tick() {
     gcr_sweep_ttl
+    gcr_reap_finished_jobs
     gcr_sweep_orphan_vms
     gcr_retry_deferred
     gcr_bootstrap_pending

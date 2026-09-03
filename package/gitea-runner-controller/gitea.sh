@@ -25,7 +25,18 @@ gcr_gitea_list_runners() {
     token="$(gcr_gitea_admin_token)" || return 1
     curl -fsS -H "Authorization: token $token" \
         "$GCR_GITEA_URL/api/v1/orgs/hectic-lab/actions/runners?per_page=50" \
-        | jq -r '.entries[] | "\(.id) \(.name)"'
+        | jq -r '.entries[]? | "\(.id) \(.name)"'
+}
+
+# gcr_gitea_job_state REPO JOB_ID — prints "<status>:<conclusion>".
+gcr_gitea_job_state() {
+    repo="$1"; job_id="$2"
+    token="$(gcr_gitea_admin_token)" || return 1
+    owner="${repo%%/*}"
+    name="${repo#*/}"
+    curl -fsS -H "Authorization: token $token" \
+        "$GCR_GITEA_URL/api/v1/repos/$owner/$name/actions/jobs/$job_id" \
+        | jq -r '.status + ":" + (.conclusion // "")'
 }
 
 gcr_gitea_delete_runner() {
