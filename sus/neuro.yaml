@@ -2,6 +2,8 @@ init-postgresql: ENC[AES256_GCM,data:JUoZk/A3b3xCDWPKt08Uy7PjSmBd3BQqn+uymiBKTA7
 matrix:
     secrets: ENC[AES256_GCM,data:vL5opJTCzQMQwhxGZm1a2K4lTFySYHAj92EW4JQSKpt3yWQAu3QHLHdt9YGOvb9/c/0APouoc+NeYWKNC5oYcih2H8z4wGfYPImn+bH7OCzr/fAGNxgOlG27cWRbkzkIpbNE7qtll0GPpEL+BsdAklzbZcgMp9s2LvQKYEovrWronBksuTI5sbOtZtoAY40yuYmnuH/Sjp+6az9KlX3fuCrb/HF6UUsPoRz98cYVPcpGiNImb64WwPGUkvDemDzKSLHB9ClUMLWuWJHumameMAKE236bz+Jqlrz5rVhbL9E1oadyw1JgQWlgeA3axKw3Ju+sThalwxQXiW3pZJPGFAmwOoNY6LiH4WBkXnfPlTY7m5f/+6FjFALUFTKHWr+iZ3S1ykUrwJGxCsK6ARBUH7U1CY6fU+fLRxjuyDogGpe7O+TcntxCKHqB/UpNjX1BDbpakOoa,iv:JR2pVrakbhDakRQDC2dfdtB1C2HneJcAtFuHClTw5gU=,tag:OYQYO22o6eKpyMrfZ/VmvA==,type:str]
     turn-secret: ENC[AES256_GCM,data:d2KxHlbeE1dehmbWy9KLKCT6UuC3bu7LaOeEQTIRTSk/etMpNL9gv2rHBmKQ/35en30PIjsAbQr3nMHLuI6uDA==,iv:Cjyb6LfdVbmlKqO16Cn7jSEy2j/7+xAz1y9UJjcpiuo=,tag:pX6RdGMxWLdP5QzqmS4tow==,type:str]
+dify:
+    environment: ENC[AES256_GCM,data:MPK6v5qeNve6sZo/OVRlPJ52+m+vHd/L96BUUX18h7JO9ErJT5kAMbu86pp3WC3g8j1MOEOvt6ccciR2wmaerzABDR+2KANRKJeDii4BWKbBssFLwRMXKn8qPlDxenTE08UsieDEyW+iF+797+CniMGPpQuynSbhV5/7QWjT1fkOImbmqslNpo2x4QgQ0gLpZCAXHMpotDlrr25MgP9AHWBBjI42o2cFz8Rfz1gBb7opu6lhbmGwt+4VL8itxmlKxPgt5iyCrL9s9TR9Kyz1dPZQzrCWcqepD8IbjyeMi3F/RGEBKsll1NM=,iv:YvSK40NV95/xoEbVERDdT3LfY2mpvguvceKvxzcqBE4=,tag:UYGTojOoh0SYe2QmOx8Avw==,type:str]
 sops:
     age:
         - recipient: age1r25zdeqq8nac6dgca9en28r57ffyz9u9d8z5yc25gc8xqz747vaqmdtk0h
@@ -22,7 +24,7 @@ sops:
             YWNZWGhKNnF6VUNsYnB6UlZFeis0dGsKVFEdSbZdnJhFrUTFrrXza43GcoCk/6m2
             2qQyFPc/cQQ2xB7ygLfNDK4xKDkvEbKmmwAIttnDbX13qIWWxvblZw==
             -----END AGE ENCRYPTED FILE-----
-    lastmodified: "2026-03-02T20:48:15Z"
-    mac: ENC[AES256_GCM,data:PYuxQRG0VIq6XmsdiH6JeC9XPPE084/keH7j/Os9qCtBZRP2b4d8yUcIFPYXpP3G9uLS55YvAOWMw9zlxpG2QM/TNwRxJ/3kziaA9sB6uA3o1DDxfhwZFiRcB5sGPB5Sh8bHYMMdk/s3KcipJ7FdSYrNn+/dGguDGAlSyruEMME=,iv:MJlGblf/VHvAr3jGRVvt0Nvr2hHRK724PiZ0wqdBtDY=,tag:Pg5mbqLG/nlvuS7Yse9iFg==,type:str]
+    lastmodified: "2026-09-06T21:54:19Z"
+    mac: ENC[AES256_GCM,data:9Z7r0jp6hB54cO1/plMLx6Dmj3MDLTbnocQGv22g+HO/dF/rwxPXW+FOhamGjOTSyncAX6h9Pg2oIGVeFbKwP0dgoYloi5eq3XOsVdn2obNn7/1PNSGmqTqw1y1N8p29f/Iv+rRl9itofE974TvpCG2Jydz1HhQ8yx/YPDC5tTY=,iv:v1DDKxJX8R+vPCXO8jCxZcbgIRizxVUY3DPUmeaWKs0=,tag:vXYmW7kbXFYuHekGEzgmoA==,type:str]
     unencrypted_suffix: _unencrypted
     version: 3.10.2

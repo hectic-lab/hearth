@@ -194,6 +194,13 @@ in {
     openFirewall = false;
   };
 
+  hectic.services.dify = {
+    enable = true;
+    environmentFile = config.sops.secrets."dify/environment".path;
+    port = 8080;
+    pluginPort = 5003;
+  };
+
   networking = {
     networkmanager.enable = true;
     useDHCP = lib.mkDefault true;
@@ -229,6 +236,7 @@ in {
     #  group = "turnserver";
     #  mode = "0400";
     #};
+    secrets."dify/environment" = {};
   };
 
   boot.loader.systemd-boot.enable = true;

@@ -7,8 +7,12 @@ HECTIC_NAMESPACE="deploy"
 
 # ssh that not saves the host in ~/.ssh/know_hosts
 puressh() {
+  local known_hosts="${HECTIC_DEPLOY_KNOWN_HOSTS:-$HOME/.ssh/known_hosts}"
+  local identity_file="${HECTIC_DEPLOY_IDENTITY_FILE:-$HOME/.ssh/id_ed25519}"
   # shellcheck disable=SC2068
-  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null $@
+  ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+    -o UserKnownHostsFile="$known_hosts" -o IdentitiesOnly=yes \
+    -i "$identity_file" $@
 }
 
 # echo <gens_list> | find_older_gen(gen) 
