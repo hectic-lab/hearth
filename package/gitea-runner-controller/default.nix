@@ -68,7 +68,7 @@ let
     text = ''
       : "''${GCR_LISTEN_ADDR:=127.0.0.1}"
       : "''${GCR_LISTEN_PORT:=8787}"
-      exec ${socat}/bin/socat -T5 -t5 \
+  exec ${socat}/bin/socat -T120 -t120 \
         "TCP-LISTEN:$GCR_LISTEN_PORT,bind=$GCR_LISTEN_ADDR,reuseaddr,fork" \
         EXEC:"${handler}/bin/gcr-webhook-handler",pipes
     '';
