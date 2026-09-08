@@ -104,7 +104,12 @@
      fi
    done
    test -n "$root_device"
-   mount -o subvol=@ "$root_device" /mnt
+   mount -o subvolid=5,rw "$root_device" /mnt
+   default_subvolume="$(btrfs subvolume get-default /mnt | awk 'NR == 1 { print $2 }')"
+   umount /mnt
+   mount -o subvolid="$default_subvolume",rw "$root_device" /mnt
+   btrfs property set -ts /mnt ro false || true
+   install -d -m 0755 /mnt/nix /mnt/var/lib/gcr-nix
    install -d -m 0700 /mnt/root/.ssh
    printf '%s' '__IMAGE_PUBLIC_KEY_B64__' | base64 -d > /mnt/root/.ssh/gcr_authorized_keys
    printf '\n%s' '__PACKER_PUBLIC_KEY_B64__' | base64 -d >> /mnt/root/.ssh/gcr_authorized_keys

@@ -287,10 +287,10 @@ UNITEOF
 cat > /usr/local/sbin/gcr-install <<INSEOF
 #!/bin/sh
 set -eu
+nix_arch=""
+nix_sha=""
 case "$label" in
   nix|gross-nix-x86|gross-nix-arm|gross-nix-x86-perf|gross-nix-mixed-econ)
-  nix_arch=""
-  nix_sha=""
   case "\$(uname -m)" in
     x86_64)
       nix_arch=x86_64-linux
@@ -305,10 +305,19 @@ case "$label" in
       exit 1
       ;;
   esac
-  curl -fsSL "https://releases.nixos.org/nix/nix-$GCR_NIX_VERSION/nix-$GCR_NIX_VERSION-\$nix_arch.tar.xz" -o /tmp/nix.tar.xz
-  printf '%s  /tmp/nix.tar.xz\n' "\$nix_sha" | sha256sum -c -
+  curl -fsSL "https://releases.nixos.org/nix/nix-$GCR_NIX_VERSION/nix-$GCR_NIX_VERSION-\\\$nix_arch.tar.xz" -o /tmp/nix.tar.xz
+  printf '%s  /tmp/nix.tar.xz\n' "\\\$nix_sha" | sha256sum -c -
   tar -xJf /tmp/nix.tar.xz -C /tmp
-  /tmp/nix-$GCR_NIX_VERSION-\$nix_arch/install --no-daemon
+  mkdir -p /var/lib/gcr-nix
+  mount --bind /var/lib/gcr-nix /nix
+  getent group nixbld >/dev/null 2>&1 || groupadd --system nixbld
+  for nixbld_user in 1 2 3 4 5 6 7 8 9 10; do
+    if ! id "nixbld$nixbld_user" >/dev/null 2>&1; then
+      useradd --system --no-create-home --shell /usr/sbin/nologin \
+        --gid nixbld "nixbld$nixbld_user"
+    fi
+  done
+  /tmp/nix-$GCR_NIX_VERSION-\\\$nix_arch/install --no-daemon
   rm -rf /tmp/nix*
   ;;
 esac
@@ -325,8 +334,8 @@ esac
    aarch64|arm64) runner_arch=arm64 ;;
    *) echo "unsupported arch for runner bootstrap: \$(uname -m)" >&2; exit 1 ;;
  esac
- curl -fsSL "https://dl.gitea.com/gitea-runner/$GCR_ACT_RUNNER_VERSION/gitea-runner-$GCR_ACT_RUNNER_VERSION-linux-\$runner_arch" -o /usr/local/bin/gitea-runner
- if [ "\$runner_arch" = amd64 ]; then
+  curl -fsSL "https://dl.gitea.com/gitea-runner/$GCR_ACT_RUNNER_VERSION/gitea-runner-$GCR_ACT_RUNNER_VERSION-linux-\\\$runner_arch" -o /usr/local/bin/gitea-runner
+  if [ "\\\$runner_arch" = amd64 ]; then
    printf '%s  /usr/local/bin/gitea-runner\n' "$GCR_ACT_RUNNER_SHA256" | sha256sum -c -
  fi
 chmod 0755 /usr/local/bin/gitea-runner
