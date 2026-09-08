@@ -8,6 +8,7 @@ let
 
   deploy = hectic.writeShellApplication {
     inherit shell bashOptions;
+    excludeShellChecks = [ "SC1091" "SC2034" ];
     name = "deploy";
     runtimeInputs = [
       ssh-to-age
@@ -15,7 +16,7 @@ let
     ];
 
     text = ''
-      ${builtins.readFile hectic.helpers.posix-shell.log}
+      . ${hectic.helpers.posix-shell.log}/bin/log.sh
       ${builtins.readFile ./deploy.sh}
     '';
   };

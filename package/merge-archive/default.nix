@@ -8,13 +8,13 @@ hectic.writeShellApplication {
     "errexit"
     "nounset"
   ];
-  excludeShellChecks = [ "SC2209" ];
+  excludeShellChecks = [ "SC1091" "SC2209" ];
   name = "merge-archive";
   runtimeInputs = [ git gnutar gzip bzip2 xz unzip coreutils file ];
 
   text = ''
-    ${builtins.readFile hectic.helpers.posix-shell.log}
-    ${builtins.readFile hectic.helpers.posix-shell.pager_or_cat}
+    . ${hectic.helpers.posix-shell.log}/bin/log.sh
+    . ${hectic.helpers.posix-shell.pager_or_cat}/bin/pager_or_cat.sh
     ${builtins.readFile ./merge-archive.sh}
   '';
 

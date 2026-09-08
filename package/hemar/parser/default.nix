@@ -8,13 +8,14 @@ let
 
   hemar = hectic.writeShellApplication {
     inherit shell bashOptions;
+    excludeShellChecks = [ "SC1091" ];
     name = "hemar";
     runtimeInputs = [ yq-go ];
 
     text = ''
       # shellcheck disable=SC2034
       WORKSPACE=${./.}
-      ${builtins.readFile hectic.helpers.posix-shell.log}
+      . ${hectic.helpers.posix-shell.log}/bin/log.sh
       ${builtins.readFile ./hemar.sh}
     '';
   };

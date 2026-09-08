@@ -51,7 +51,7 @@
     nativeBuildInputs = [ pkgs.coreutils pkgs.gnugrep pkgs.gnused ];
     buildInputs       = [ database dbOps postgresInit postgresCleanup pkgs.postgresql_17 pkgs.dash ];
   } ''
-    ${builtins.readFile self.legacyPackages.${system}.helpers.posix-shell.log}
+        . ${self.legacyPackages.${system}.helpers.posix-shell.log}/bin/log.sh
     test=${testDrv}
     export HECTIC_LOG=trace
     set -eu
@@ -67,7 +67,7 @@
     nativeBuildInputs = [ pkgs.coreutils pkgs.gnugrep pkgs.gnused ];
     buildInputs       = [ database dbOps postgresInit postgresCleanup pkgs.postgresql_17 pkgs.dash pkgs.netcat-openbsd ];
   } ''
-    ${builtins.readFile self.legacyPackages.${system}.helpers.posix-shell.log}
+        . ${self.legacyPackages.${system}.helpers.posix-shell.log}/bin/log.sh
     test=${testDrv}
     export HECTIC_LOG=trace
     set -eu

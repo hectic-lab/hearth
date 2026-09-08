@@ -10,11 +10,12 @@ let
 
   migrator = hectic.writeShellApplication {
     inherit shell bashOptions;
+    excludeShellChecks = [ "SC1091" ];
     name = "migrator";
     runtimeInputs = [ sqlite postgresql_17 gawk coreutils ];
 
     text = ''
-      ${builtins.readFile hectic.helpers.posix-shell.log}
+      . ${hectic.helpers.posix-shell.log}/bin/log.sh
       ${applyBundle}
       ${builtins.readFile ./migrator.sh}
     '';

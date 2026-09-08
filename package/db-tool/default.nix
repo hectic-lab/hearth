@@ -16,16 +16,16 @@ let
         "errexit"
         "nounset"
       ];
-      excludeShellChecks = [ "SC2209" ];
+    excludeShellChecks = [ "SC1091" "SC2209" ];
       name = "database";
       runtimeInputs = [ hectic.migrator hectic.parse-uri postgresql neovim openssh coreutils gawk ];
 
       text = ''
-        ${builtins.readFile hectic.helpers.posix-shell.log}
-        ${builtins.readFile hectic.helpers.posix-shell.change_namespace}
-        ${builtins.readFile hectic.helpers.posix-shell.quote}
-        ${builtins.readFile hectic.helpers.posix-shell.pager_or_cat}
-        ${builtins.readFile hectic.helpers.posix-shell.with_closed_fds}
+        . ${hectic.helpers.posix-shell.log}/bin/log.sh
+        . ${hectic.helpers.posix-shell.change_namespace}/bin/change_namespace.sh
+        . ${hectic.helpers.posix-shell.quote}/bin/quote.sh
+        . ${hectic.helpers.posix-shell.pager_or_cat}/bin/pager_or_cat.sh
+        . ${hectic.helpers.posix-shell.with_closed_fds}/bin/with_closed_fds.sh
         ${applyBundle}
         ${builtins.readFile ./db-dev.sh}
       '';
@@ -44,13 +44,13 @@ let
         "errexit"
         "nounset"
       ];
-      excludeShellChecks = [ "SC2209" ];
+    excludeShellChecks = [ "SC1091" "SC2209" ];
       name = "db-ops";
       runtimeInputs = [ postgresql coreutils ];
 
       text = ''
-        ${builtins.readFile hectic.helpers.posix-shell.log}
-        ${builtins.readFile hectic.helpers.posix-shell.change_namespace}
+        . ${hectic.helpers.posix-shell.log}/bin/log.sh
+        . ${hectic.helpers.posix-shell.change_namespace}/bin/change_namespace.sh
         ${applyBundle}
         ${builtins.readFile ./db-ops.sh}
       '';
@@ -70,7 +70,7 @@ let
       runtimeInputs = [ postgresql coreutils ];
 
       text = ''
-        ${builtins.readFile hectic.helpers.posix-shell.with_closed_fds}
+        . ${hectic.helpers.posix-shell.with_closed_fds}/bin/with_closed_fds.sh
         ${builtins.readFile ./postgres-init.sh}
       '';
 

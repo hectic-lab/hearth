@@ -41,7 +41,7 @@
     nativeBuildInputs = [ pkgs.coreutils pkgs.gnugrep pkgs.gnused ];
     buildInputs       = [ pkgs.which migrator pkgs.postgresql ];
   } ''
-    ${builtins.readFile self.legacyPackages.${system}.helpers.posix-shell.log}
+        . ${self.legacyPackages.${system}.helpers.posix-shell.log}/bin/log.sh
     test=${testDrv}
     export HECTIC_LOG=trace
     ${builtins.readFile ./util.sh}
@@ -57,7 +57,7 @@
     nativeBuildInputs = [ pkgs.coreutils pkgs.gnugrep pkgs.gnused ];
     buildInputs       = [ pkgs.which migrator pkgs.sqlite ];
   } ''
-    ${builtins.readFile self.legacyPackages.${system}.helpers.posix-shell.log}
+        . ${self.legacyPackages.${system}.helpers.posix-shell.log}/bin/log.sh
     test=${testDrv}
     export HECTIC_LOG=trace
     ${builtins.readFile ./util.sh}

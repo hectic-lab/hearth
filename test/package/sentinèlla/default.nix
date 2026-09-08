@@ -34,7 +34,7 @@
       nativeBuildInputs = [ pkgs.coreutils pkgs.gnugrep pkgs.gnused ];
       buildInputs       = [ sentinella pkgs.curl pkgs.jq pkgs.socat ];
     } ''
-      ${builtins.readFile self.legacyPackages.${system}.helpers.posix-shell.log}
+      . ${self.legacyPackages.${system}.helpers.posix-shell.log}/bin/log.sh
       export HECTIC_LOG=trace
       test=${testDrv}
       ${builtins.readFile ./launch.sh}

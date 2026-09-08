@@ -13,7 +13,7 @@ let
     inherit shell bashOptions;
     name = "linux-devshell";
     runtimeInputs = [ curl coreutils gawk procps ];
-    excludeShellChecks = [ "SC2034" "SC1090" ];
+  excludeShellChecks = [ "SC1090" "SC1091" "SC2034" ];
 
     text = ''
       ${logHelpers}

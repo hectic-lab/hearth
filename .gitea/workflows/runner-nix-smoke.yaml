@@ -10,10 +10,15 @@ on:
       - flake.lock
       - flake.nix
       - infra/gitea-runners/**
+      - lib/**
+      - legacy/**
+      - nixos/**
+      - package/**
+      - test/**
 
 jobs:
   smoke:
-    name: nix label smoke
+    name: nix label and flake smoke
     runs-on: nix
     steps:
       - name: Checkout repository
@@ -26,7 +31,7 @@ jobs:
           nix config show substituters
           nix config show trusted-public-keys
 
-      - name: Repository flake metadata
+      - name: Repository flake evaluation
         run: |
           set -eu
-          nix flake metadata --no-write-lock-file
+          nix --option eval-cache false flake check --no-build --no-write-lock-file

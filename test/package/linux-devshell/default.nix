@@ -47,7 +47,7 @@
       linuxDevShell = linuxDevShell;
       linuxDevShellStandalone = linuxDevShellStandalone;
     } ''
-      ${builtins.readFile self.legacyPackages.${system}.helpers.posix-shell.log}
+      . ${self.legacyPackages.${system}.helpers.posix-shell.log}/bin/log.sh
       export HECTIC_LOG=trace
       test=${testDrv}
       linuxDevShell="${linuxDevShell}"
@@ -64,7 +64,7 @@
       linuxDevShellStandalone = linuxDevShellStandalone;
       archBootstrap = archBootstrap;
     } ''
-      ${builtins.readFile self.legacyPackages.${system}.helpers.posix-shell.log}
+      . ${self.legacyPackages.${system}.helpers.posix-shell.log}/bin/log.sh
       export HECTIC_LOG=trace
 
       log notice "test case: ''${WHITE}arch ${name}"
@@ -156,7 +156,7 @@
       linuxDevShellStandalone = linuxDevShellStandalone;
       ubuntuBootstrap = ubuntuBootstrap;
     } ''
-      ${builtins.readFile self.legacyPackages.${system}.helpers.posix-shell.log}
+      . ${self.legacyPackages.${system}.helpers.posix-shell.log}/bin/log.sh
       export HECTIC_LOG=trace
 
       log notice "test case: ''${WHITE}ubuntu ${name}"

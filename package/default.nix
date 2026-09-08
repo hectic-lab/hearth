@@ -10,15 +10,9 @@
     };
   };
   buildPostgresqlExtension =
-    pkgs: pkgs.callPackage (import (builtins.path {
-      name = "extension-builder";
-      path = ./buildPostgresqlExtension.nix;
-    }));
+    pkgs: pkgs.callPackage ./buildPostgresqlExtension.nix;
   buildPgrxExtension = pkgs: 
-    pkgs.callPackage (import (builtins.path {
-      name = "extension-builder";
-      path = ./buildPgrxExtension.nix;
-    })) { 
+    pkgs.callPackage ./buildPgrxExtension.nix {
       cargo-pgrx = pkgs.cargo-pgrx_0_12_6;
       inherit (pkgs.darwin.apple_sdk.frameworks) Security;
     };

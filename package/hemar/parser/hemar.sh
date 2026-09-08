@@ -299,7 +299,7 @@ parse_tag() {
           log trace "tag in ws -> type: \`${TAG_type:-}\`"
           case "${TAG_type:-unknown}" in
             unknown) finalize_first_arg ;;
-            for) 
+            'for')
               # NOTE: 
               # grammar: for i in key."subkey" ; so we know
               # 1st argument after `for` - string (name of variable)
@@ -427,13 +427,13 @@ finish() {
     unknown) 
       finish_interpolation_tag
     ;;
-    done)
+    'done')
       finish_done_tag
     ;;
     '{[')
       finish_bracket_tag
     ;;
-    for) ;;
+    'for') ;;
     *) log panic 'unexpected TAG_type on finish'; exit 13; ;;
   esac
 }
@@ -442,14 +442,14 @@ finalize_first_arg() {
   log trace "finalize first arg"
   log trace "buffer: $(cat "$CURRENT_STAGE_BUFFER")"
   case "$(cat "$CURRENT_STAGE_BUFFER")" in
-    for)
+    'for')
       TAG_type='for'
       # NOTE: we know that next argument after `for` is string
       TAG_grammar_mode=string
       log error 'for unimplemented'
       exit 13
     ;;
-    done)
+    'done')
       finish_done_tag
     ;;
     '{[')
