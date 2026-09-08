@@ -66,6 +66,7 @@ let
     hectic.writeShellApplication {
       inherit shell;
       bashOptions = [ ];
+      excludeShellChecks = [ "SC1091" ];
       name = "postgres-init";
       runtimeInputs = [ postgresql coreutils ];
 
