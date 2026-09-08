@@ -21,11 +21,11 @@ let
       runtimeInputs = [ hectic.migrator hectic.parse-uri postgresql neovim openssh coreutils gawk ];
 
       text = ''
-        . ${hectic.helpers.posix-shell.log}/bin/log.sh
-        . ${hectic.helpers.posix-shell.change_namespace}/bin/change_namespace.sh
-        . ${hectic.helpers.posix-shell.quote}/bin/quote.sh
-        . ${hectic.helpers.posix-shell.pager_or_cat}/bin/pager_or_cat.sh
-        . ${hectic.helpers.posix-shell.with_closed_fds}/bin/with_closed_fds.sh
+        . ${hectic.helpers.posix-shell.log}
+        . ${hectic.helpers.posix-shell.change_namespace}
+        . ${hectic.helpers.posix-shell.quote}
+        . ${hectic.helpers.posix-shell.pager_or_cat}
+        . ${hectic.helpers.posix-shell.with_closed_fds}
         ${applyBundle}
         ${builtins.readFile ./db-dev.sh}
       '';
@@ -49,8 +49,8 @@ let
       runtimeInputs = [ postgresql coreutils ];
 
       text = ''
-        . ${hectic.helpers.posix-shell.log}/bin/log.sh
-        . ${hectic.helpers.posix-shell.change_namespace}/bin/change_namespace.sh
+        . ${hectic.helpers.posix-shell.log}
+        . ${hectic.helpers.posix-shell.change_namespace}
         ${applyBundle}
         ${builtins.readFile ./db-ops.sh}
       '';
@@ -71,7 +71,7 @@ let
       runtimeInputs = [ postgresql coreutils ];
 
       text = ''
-        . ${hectic.helpers.posix-shell.with_closed_fds}/bin/with_closed_fds.sh
+        . ${hectic.helpers.posix-shell.with_closed_fds}
         ${builtins.readFile ./postgres-init.sh}
       '';
 

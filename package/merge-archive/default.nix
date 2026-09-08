@@ -13,8 +13,8 @@ hectic.writeShellApplication {
   runtimeInputs = [ git gnutar gzip bzip2 xz unzip coreutils file ];
 
   text = ''
-    . ${hectic.helpers.posix-shell.log}/bin/log.sh
-    . ${hectic.helpers.posix-shell.pager_or_cat}/bin/pager_or_cat.sh
+    . ${hectic.helpers.posix-shell.log}
+    . ${hectic.helpers.posix-shell.pager_or_cat}
     ${builtins.readFile ./merge-archive.sh}
   '';
 

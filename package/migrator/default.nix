@@ -15,7 +15,7 @@ let
     runtimeInputs = [ sqlite postgresql_17 gawk coreutils ];
 
     text = ''
-      . ${hectic.helpers.posix-shell.log}/bin/log.sh
+      . ${hectic.helpers.posix-shell.log}
       ${applyBundle}
       ${builtins.readFile ./migrator.sh}
     '';

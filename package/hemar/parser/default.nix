@@ -15,7 +15,7 @@ let
     text = ''
       # shellcheck disable=SC2034
       WORKSPACE=${./.}
-      . ${hectic.helpers.posix-shell.log}/bin/log.sh
+      . ${hectic.helpers.posix-shell.log}
       ${builtins.readFile ./hemar.sh}
     '';
   };

@@ -37,7 +37,7 @@
     nativeBuildInputs = [ pkgs.coreutils pkgs.gnugrep pkgs.gnused ];
     buildInputs = [ hemar pkgs.yq-go pkgs.which ];
   } ''
-        . ${self.legacyPackages.${system}.helpers.posix-shell.log}/bin/log.sh
+        . ${self.legacyPackages.${system}.helpers.posix-shell.log}
     test=${testDrv}
     ${builtins.readFile ./lauch.sh}
 

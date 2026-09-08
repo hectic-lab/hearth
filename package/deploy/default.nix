@@ -16,7 +16,7 @@ let
     ];
 
     text = ''
-      . ${hectic.helpers.posix-shell.log}/bin/log.sh
+      . ${hectic.helpers.posix-shell.log}
       ${builtins.readFile ./deploy.sh}
     '';
   };

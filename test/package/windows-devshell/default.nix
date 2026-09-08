@@ -9,7 +9,7 @@ let
       nativeBuildInputs = [ pkgs.coreutils pkgs.gnugrep ];
       windowsDevShellStandalone = windowsDevShellStandalone;
     } ''
-      . ${self.legacyPackages.${system}.helpers.posix-shell.log}/bin/log.sh
+      . ${self.legacyPackages.${system}.helpers.posix-shell.log}
       test=${testDrv}
       ${builtins.readFile ./launch.sh}
       mkdir -p "$out"
