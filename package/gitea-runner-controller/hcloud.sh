@@ -10,7 +10,7 @@ GCR_API="https://api.hetzner.cloud/v1"
 gcr_image_id_for_arch() {
     arch="$1"; label="${2:-}"
     nix_image=0
-    case "$label" in nix|gross-nix-*) nix_image=1 ;; esac
+    case "$label" in nix) nix_image=1 ;; esac
     case "$arch:$nix_image" in
         amd64:0) [ -n "${GCR_IMAGE_ID:-}" ] && printf '%s' "$GCR_IMAGE_ID" ;;
         arm64:0) [ -n "${GCR_ARM_IMAGE_ID:-}" ] && printf '%s' "$GCR_ARM_IMAGE_ID" ;;
@@ -188,10 +188,12 @@ gcr_vm_create() {
             --arg label "$label" \
             --arg arch "$candidate_arch" \
             --arg ts "$(date -u '+%s')" \
-            --arg ttl "$ttl_min" \
+             --arg ttl "$ttl_min" \
+             --arg ssh_key_id "${GCR_HCLOUD_SSH_KEY_ID:-}" \
             --arg repo_safe "$(printf '%s' "$repo" | tr '/:' '--')" \
             '{name:$name, server_type:$stype, image:$image, location:$loc,
-              start_after_create:true,
+               start_after_create:true,
+               ssh_keys:(if $ssh_key_id == "" then [] else [$ssh_key_id | tonumber] end),
               labels:{
                 "gitea-runner-controller":"managed",
                 "gcr.job-id":$jid, "gcr.run-attempt":$att,

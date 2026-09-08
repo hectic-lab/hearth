@@ -47,12 +47,14 @@ let
       "GITEA_REGISTRATION_TOKEN_FILE=${registrationTokenPath}"
       "GITEA_ADMIN_TOKEN_FILE=${config.sops.secrets."${secretPrefix}/admin-token".path}"
       "GCR_SSH_PRIVKEY_FILE=${config.sops.secrets."${secretPrefix}/ssh-private-key".path}"
+      "GCR_HCLOUD_SSH_KEY_ID=${toString cfg.hcloudSshKeyId}"
       "GCR_NIX_VERSION=${cfg.nixVersion}"
       "GCR_NIX_TARBALL_SHA256=${cfg.nixTarballSha256}"
       "GCR_ARM_NIX_TARBALL_SHA256=${cfg.armNixTarballSha256}"
       "GCR_ACT_RUNNER_VERSION=${cfg.actRunnerVersion}"
       "GCR_ACT_RUNNER_SHA256=${cfg.actRunnerSha256}"
     ]
+    ++ lib.optional (cfg.debugSshPublicKey != null) "\"GCR_DEBUG_SSH_PUBKEY=${cfg.debugSshPublicKey}\""
     ++ lib.optionals (cfg.imageId != null) [ "GCR_IMAGE_ID=${cfg.imageId}" ]
     ++ lib.optionals (cfg.armImageId != null) [ "GCR_ARM_IMAGE_ID=${cfg.armImageId}" ]
     ++ lib.optionals (cfg.nixImageId != null) [ "GCR_NIX_IMAGE_ID=${cfg.nixImageId}" ]
@@ -176,6 +178,11 @@ in
           carries the matching public key; this value is informational and
           used by gcr_bootstrap_script documentation).
         '';
+      };
+      hcloudSshKeyId = lib.mkOption {
+        type = lib.types.nullOr lib.types.ints.positive;
+        default = null;
+        description = "Hetzner project SSH key ID injected into ephemeral VMs at creation.";
       };
       bootstrapSshPrivateKeyFile = lib.mkOption {
         type = lib.types.path;

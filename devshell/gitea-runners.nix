@@ -43,7 +43,8 @@
     trap 'rm -rf "$workdir"' EXIT HUP INT TERM
     ssh_private_key_file="$workdir/packer-ssh-key"
     ssh-keygen -q -t ed25519 -N "" -f "$ssh_private_key_file"
-    image_public_key_file="''${GITEA_RUNNERS_IMAGE_SSH_PUBLIC_KEY_FILE:-$HOME/.ssh/id_ed25519.pub}"
+    : "''${GITEA_RUNNERS_IMAGE_SSH_PUBLIC_KEY_FILE:?GITEA_RUNNERS_IMAGE_SSH_PUBLIC_KEY_FILE is not set}"
+    image_public_key_file="$GITEA_RUNNERS_IMAGE_SSH_PUBLIC_KEY_FILE"
     test -r "$image_public_key_file"
     packer_public_key_b64="$(base64 -w0 "$ssh_private_key_file.pub")"
     image_public_key_b64="$(base64 -w0 "$image_public_key_file")"
@@ -93,33 +94,42 @@
       "$packer_dir/hcloud-microos-snapshots.pkr.hcl"
 
     cat > "$workdir/image-key-injection.txt" <<'EOF'
-  partprobe /dev/sda || true
-  udevadm settle
-  root_device=""
-  for candidate in /dev/sda[0-9]*; do
-    if [ "$(blkid -s TYPE -o value "$candidate" 2>/dev/null || true)" = btrfs ]; then
-      root_device="$candidate"
-      break
-    fi
-  done
-  test -n "$root_device"
-  mount -o subvol=@ "$root_device" /mnt
-  install -d -m 0700 /mnt/root/.ssh
-  printf '%s' '__IMAGE_PUBLIC_KEY_B64__' | base64 -d > /mnt/root/.ssh/authorized_keys
-  printf '\n%s' '__PACKER_PUBLIC_KEY_B64__' | base64 -d >> /mnt/root/.ssh/authorized_keys
-  chmod 0600 /mnt/root/.ssh/authorized_keys
-  sync
-  umount /mnt
+   partprobe /dev/sda || true
+   udevadm settle
+   root_device=""
+   for candidate in /dev/sda[0-9]*; do
+     if [ "$(blkid -s TYPE -o value "$candidate" 2>/dev/null || true)" = btrfs ]; then
+       root_device="$candidate"
+       break
+     fi
+   done
+   test -n "$root_device"
+   mount -o subvol=@ "$root_device" /mnt
+   install -d -m 0700 /mnt/root/.ssh
+   printf '%s' '__IMAGE_PUBLIC_KEY_B64__' | base64 -d > /mnt/root/.ssh/gcr_authorized_keys
+   printf '\n%s' '__PACKER_PUBLIC_KEY_B64__' | base64 -d >> /mnt/root/.ssh/gcr_authorized_keys
+   chmod 0600 /mnt/root/.ssh/gcr_authorized_keys
+   install -d -m 0755 /mnt/etc/ssh/sshd_config.d
+   printf '%s\n' 'PermitRootLogin prohibit-password' 'PubkeyAuthentication yes' 'AuthorizedKeysFile .ssh/authorized_keys .ssh/gcr_authorized_keys' > /mnt/etc/ssh/sshd_config.d/99-gcr-root.conf
+   chmod 0644 /mnt/etc/ssh/sshd_config.d/99-gcr-root.conf
+   sync
+   umount /mnt
 EOF
     sed -i "s|__PACKER_PUBLIC_KEY_B64__|$packer_public_key_b64|" \
       "$workdir/image-key-injection.txt"
     sed -i "s|__IMAGE_PUBLIC_KEY_B64__|$image_public_key_b64|" \
       "$workdir/image-key-injection.txt"
     awk -v inject_file="$workdir/image-key-injection.txt" \
-      '/done[.] Rebooting/ {
-        while ((getline line < inject_file) > 0) print line
-        close(inject_file)
-      }
+      '/rm -f \/root\/.ssh\/authorized_keys/ {
+         cleanup=1
+       }
+       cleanup && /sleep 1/ {
+         print
+         while ((getline line < inject_file) > 0) print line
+         close(inject_file)
+         cleanup=0
+         next
+       }
       { print }' \
       "$packer_dir/hcloud-microos-snapshots.pkr.hcl" \
       > "$packer_dir/hcloud-microos-snapshots.pkr.hcl.tmp"

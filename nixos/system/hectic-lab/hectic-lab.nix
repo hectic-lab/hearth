@@ -109,7 +109,7 @@ in {
       # NOTE(yukkop): ephemeral Hetzner VM runners (1 VM = 1 job).
       # Runbook: infra/gitea-runners/runbook.md "Ephemeral VM runner cutover".
       enable  = true;
-      imageId = "424558114"; # MicroOS x86 + Hetzner datasource dhcpcd fix
+      imageId = "429564260"; # MicroOS x86 + persistent controller SSH key
       armImageId = "423979717"; # OpenSUSE MicroOS ARM K3S 2026-08-24 snapshot
       nixImageId = "161547269"; # Ubuntu 24.04 x86; Nix needs writable root
       armNixImageId = "161547270"; # Ubuntu 24.04 ARM; Nix needs writable root
@@ -119,7 +119,8 @@ in {
         "hectic-lab/*"
       ];
       # FIXME(yukkop): debug key for bootstrap debugging; remove once E2E stable.
-      debugSshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJBLxMo5icX2Xyng7mcWGnIi+c4ZbVygjPhuU8noCkfZ yukkop@nixos";
+    debugSshPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBSWIv80pyCMDQ6zH34P2qWizpOcO7X86BVhMGtbob9U gcr-controller@hectic-lab";
+    hcloudSshKeyId = 118512401;
     };
   };
 
