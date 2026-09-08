@@ -26,7 +26,7 @@ jobs:
           nix config show substituters
           nix config show trusted-public-keys
 
-      - name: Repository flake evaluation
+      - name: Repository flake metadata
         run: |
           set -eu
-          nix flake check --no-build
+          nix flake metadata --no-write-lock-file

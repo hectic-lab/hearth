@@ -310,6 +310,14 @@ case "$label" in
   rm -rf /tmp/nix*
   ;;
 esac
+case "$label" in
+  nix|gross-nix-*)
+    if command -v apt-get >/dev/null 2>&1; then
+      apt-get update -qq
+      DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs
+    fi
+    ;;
+esac
  case "\$(uname -m)" in
    x86_64) runner_arch=amd64 ;;
    aarch64|arm64) runner_arch=arm64 ;;
