@@ -54,7 +54,9 @@ let
       "GCR_ACT_RUNNER_SHA256=${cfg.actRunnerSha256}"
     ]
     ++ lib.optionals (cfg.imageId != null) [ "GCR_IMAGE_ID=${cfg.imageId}" ]
-    ++ lib.optionals (cfg.armImageId != null) [ "GCR_ARM_IMAGE_ID=${cfg.armImageId}" ];
+    ++ lib.optionals (cfg.armImageId != null) [ "GCR_ARM_IMAGE_ID=${cfg.armImageId}" ]
+    ++ lib.optionals (cfg.nixImageId != null) [ "GCR_NIX_IMAGE_ID=${cfg.nixImageId}" ]
+    ++ lib.optionals (cfg.armNixImageId != null) [ "GCR_ARM_NIX_IMAGE_ID=${cfg.armNixImageId}" ];
 in
 {
   options = {
@@ -128,6 +130,18 @@ in
           Hetzner ARM image/snapshot id for ephemeral VMs. Required for labels
           whose fallback chain includes ARM server types.
         '';
+      };
+      nixImageId = lib.mkOption {
+        type = with lib.types; nullOr str;
+        default = null;
+        example = "161547269";
+        description = "Hetzner Ubuntu image id used by Nix-capable x86 runners.";
+      };
+      armNixImageId = lib.mkOption {
+        type = with lib.types; nullOr str;
+        default = null;
+        example = "161547270";
+        description = "Hetzner Ubuntu image id used by Nix-capable ARM runners.";
       };
       actRunnerVersion = lib.mkOption {
         type = lib.types.str;

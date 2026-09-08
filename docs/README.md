@@ -6,8 +6,8 @@
 
 Common labels for zero-idle runners:
 
-- `ubuntu-latest` — default Ubuntu-style smoke / host runner path
-- `nix` — Nix-capable runner path
+- `ubuntu-latest` — persistent Ubuntu 24.04 `cx23` worker
+- `nix` — persistent Nix-capable Ubuntu `cx23` worker
 - `gross-x86` — x86 fallback chain `cx53` / `cx43` / `cx33`
 - `gross-arm` — ARM fallback chain `cax41` / `cax31` / `cax21`
 - `gross-x86-perf` — x86 performance chain `cx53` / `cpx62` / `cpx52`
@@ -18,6 +18,9 @@ Common labels for zero-idle runners:
 - `gross-nix-mixed-econ` — `gross-mixed-econ` + Nix bootstrap
 
 Region order for fallback: `nbg1`, then `fsn1`, then `hel1`.
+
+`nix` and `ubuntu-latest` are persistent workers; only `gross-*` labels use
+zero-idle ephemeral VMs.
 
 Operational details: `infra/gitea-runners/runbook.md` and
 `package/gitea-runner-controller/decide.sh`.

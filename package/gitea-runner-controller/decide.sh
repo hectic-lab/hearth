@@ -22,8 +22,6 @@ gcr_server_hourly_rate() {
 
 gcr_label_ttl() {
     case "$1" in
-        ubuntu-latest)   printf '60'  ;;
-        nix)             printf '180' ;;
         gross-x86)       printf '180' ;;
         gross-arm)       printf '180' ;;
         gross-x86-perf)  printf '180' ;;
@@ -40,12 +38,6 @@ gcr_label_ttl() {
 gcr_label_candidates() {
     label="$1"
     case "$label" in
-        ubuntu-latest)
-            printf '%s\n' 'cx33 nbg1 amd64' 'cx33 fsn1 amd64' 'cx33 hel1 amd64'
-            ;;
-        nix)
-            printf '%s\n' 'cx33 nbg1 amd64' 'cx33 fsn1 amd64' 'cx33 hel1 amd64'
-            ;;
         gross-x86)
             printf '%s\n' \
                 'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64' \

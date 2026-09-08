@@ -111,6 +111,8 @@ in {
       enable  = true;
       imageId = "424558114"; # MicroOS x86 + Hetzner datasource dhcpcd fix
       armImageId = "423979717"; # OpenSUSE MicroOS ARM K3S 2026-08-24 snapshot
+      nixImageId = "161547269"; # Ubuntu 24.04 x86; Nix needs writable root
+      armNixImageId = "161547270"; # Ubuntu 24.04 ARM; Nix needs writable root
       allowedRepos = [
         "hinterland/*"
         "yukkop/*"

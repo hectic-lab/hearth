@@ -8,9 +8,14 @@
 GCR_API="https://api.hetzner.cloud/v1"
 
 gcr_image_id_for_arch() {
-    case "$1" in
-        amd64) [ -n "${GCR_IMAGE_ID:-}" ] && printf '%s' "$GCR_IMAGE_ID" ;;
-        arm64) [ -n "${GCR_ARM_IMAGE_ID:-}" ] && printf '%s' "$GCR_ARM_IMAGE_ID" ;;
+    arch="$1"; label="${2:-}"
+    nix_image=0
+    case "$label" in nix|gross-nix-*) nix_image=1 ;; esac
+    case "$arch:$nix_image" in
+        amd64:0) [ -n "${GCR_IMAGE_ID:-}" ] && printf '%s' "$GCR_IMAGE_ID" ;;
+        arm64:0) [ -n "${GCR_ARM_IMAGE_ID:-}" ] && printf '%s' "$GCR_ARM_IMAGE_ID" ;;
+        amd64:1) [ -n "${GCR_NIX_IMAGE_ID:-}" ] && printf '%s' "$GCR_NIX_IMAGE_ID" ;;
+        arm64:1) [ -n "${GCR_ARM_NIX_IMAGE_ID:-}" ] && printf '%s' "$GCR_ARM_NIX_IMAGE_ID" ;;
         *) return 1 ;;
     esac
 }
@@ -168,7 +173,7 @@ gcr_vm_create() {
     while read -r candidate_type candidate_loc candidate_arch; do
         [ -n "${candidate_type:-}" ] || continue
         candidate_n=$((candidate_n + 1))
-        image_id="$(gcr_image_id_for_arch "$candidate_arch")" || {
+        image_id="$(gcr_image_id_for_arch "$candidate_arch" "$label")" || {
             gcr_log warn --ns=hcloud "skip candidate[$candidate_n] label=$label arch=$candidate_arch no image"
             continue
         }
