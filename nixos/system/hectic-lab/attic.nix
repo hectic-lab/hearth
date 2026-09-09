@@ -3,9 +3,43 @@
   ...
 }: {
   config,
+  lib,
   pkgs,
   ...
-}: {
+}: let
+  repackedActive = false;
+  migrationWriteFreeze = true;
+
+  repackedSettings = config.services.atticd.settings // {
+    listen = "127.0.0.1:8082";
+    allowed-hosts = [ "cache.${domain}" ];
+    api-endpoint = if repackedActive then "https://cache.${domain}/" else "https://cache.${domain}/next/";
+    substituter-endpoint = if repackedActive then "https://cache.${domain}/" else "https://cache.${domain}/next/";
+    database.url = "sqlite:///var/lib/atticd-repacked/server.db?mode=rwc";
+    storage = {
+      type     = "s3";
+      bucket   = "nix-cache-hectic-lab";
+      endpoint = "https://hel1.your-objectstorage.com";
+      region   = "hel1";
+    };
+    chunking = {
+      nar-size-threshold = 1048576;
+      min-size           = 1048576;
+      avg-size           = 2097152;
+      max-size           = 4194304;
+    };
+    compression.type = "zstd";
+  };
+
+  repackedConfigFile = pkgs.runCommand "checked-atticd-repacked.toml" {
+    configFile = (pkgs.formats.toml { }).generate "server-repacked.toml" repackedSettings;
+  } ''
+    export ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64="$(${lib.getExe pkgs.openssl} genrsa -traditional 4096 | ${pkgs.coreutils}/bin/base64 -w0)"
+    export ATTIC_SERVER_DATABASE_URL="sqlite://:memory:"
+    ${lib.getExe config.services.atticd.package} --mode check-config -f $configFile
+    cat <$configFile >$out
+  '';
+in {
   hectic.services.attic = {
     enable          = true;
     hostName        = "cache.${domain}";
@@ -32,6 +66,26 @@
     '';
   });
 
+  services.atticd.settings = lib.mkIf repackedActive {
+    api-endpoint = lib.mkForce "https://cache.${domain}/previous/";
+    substituter-endpoint = "https://cache.${domain}/previous/";
+  };
+  services.atticd.mode = if migrationWriteFreeze || repackedActive then "api-server" else "monolithic";
+
+  systemd.services.atticd-repacked = {
+    wantedBy = [ "multi-user.target" ];
+    after    = [ "network-online.target" ];
+    wants    = [ "network-online.target" ];
+
+    serviceConfig = config.systemd.services.atticd.serviceConfig // {
+      ExecStart       = "${lib.getExe config.services.atticd.package} -f ${repackedConfigFile} --mode monolithic";
+      EnvironmentFile = config.sops.secrets."atticd/environment".path;
+      StateDirectory  = "atticd-repacked";
+      User            = "atticd-repacked";
+      Group           = "atticd-repacked";
+    };
+  };
+
   services.nginx.virtualHosts."cache.${domain}" = {
     enableACME = true;
     forceSSL   = true;
@@ -39,8 +93,31 @@
       client_max_body_size 0;
     '';
     locations."/" = {
-      proxyPass = "http://127.0.0.1:8081";
+      proxyPass = if repackedActive then "http://127.0.0.1:8082" else "http://127.0.0.1:8081";
       extraConfig = ''
+        # Allow quiet periods while Attic fetches NAR chunks from object storage.
+        proxy_read_timeout 300s;
+      '' + lib.optionalString (migrationWriteFreeze && !repackedActive) ''
+        # Quiesce the old writer during the final snapshot and verification.
+        limit_except GET {
+          deny all;
+        }
+      '';
+    };
+    locations."/next/" = {
+      proxyPass = "http://127.0.0.1:8082/";
+      extraConfig = ''
+        # Allow quiet periods while Attic fetches NAR chunks from object storage.
+        proxy_read_timeout 300s;
+      '';
+    };
+    locations."/previous/" = {
+      proxyPass = "http://127.0.0.1:8081/";
+      extraConfig = ''
+        # Legacy backend is exposed for read-only migration checks.
+        limit_except GET {
+          deny all;
+        }
         # Allow quiet periods while Attic fetches NAR chunks from object storage.
         proxy_read_timeout 300s;
       '';
