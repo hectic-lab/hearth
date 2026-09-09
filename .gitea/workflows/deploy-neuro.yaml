@@ -18,7 +18,7 @@ jobs:
     env:
       NIX_CONFIG: |
         extra-substituters = https://cache.nixos.org https://cache.hectic-lab.com/hectic
-        extra-trusted-public-keys = hectic:KMQsKow4SoA9K2vOJlOljmx7/Zpf91Yy+5qEtxDDCzA=
+        trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= hectic:KMQsKow4SoA9K2vOJlOljmx7/Zpf91Yy+5qEtxDDCzA=
     steps:
       - name: Checkout dispatched revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
