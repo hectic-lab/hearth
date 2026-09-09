@@ -173,4 +173,6 @@ in {
   pg-15-ext-plsh               = buildPlShExt      pkgs "15";
   stable-video-diffusion-api   = pkgs.callPackage ./stable-video-diffusion-api {};
   media-browser                = pkgs.callPackage ./media-browser {};
+} // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+  with-attic-cache = pkgs.callPackage ./with-attic-cache {};
 }

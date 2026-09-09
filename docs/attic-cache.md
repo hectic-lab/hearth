@@ -171,6 +171,56 @@ nix shell nixpkgs#attic-client -c attic cache info local:hectic
 nix shell nixpkgs#attic-client -c attic login local https://cache.hectic-lab.com "<NEW_TOKEN>"
 ```
 
+## Automatic uploads from trusted CI
+
+The `deploy-neuro` workflow uses `with-attic-cache` around its deployment command:
+
+```sh
+# ATTIC_TOKEN must be supplied through a secret, not committed or printed.
+nix run '.#with-attic-cache' -- -- nix build '.#my-package'
+```
+
+The wrapper installs a temporary Nix `post-build-hook`. Each successful local
+build queues all output paths, including build-only dependencies and multiple
+outputs. A separate worker uploads batches with `attic push --stdin --no-closure`
+and two concurrent uploads. Pending outputs have registered garbage-collection
+roots until uploaded. Substituted paths and the initial bootstrap of the wrapper
+itself are not uploaded; this avoids copying the public NixOS cache into Attic.
+
+The worker runs during the build and drains after success or failure. Uploads
+have bounded retries; exhausted uploads fail an otherwise successful command.
+If the build failed, its original exit status is preserved. Defaults are 30
+minutes for the wrapped command, 10 minutes for the final drain, and three
+120-second attempts per batch. The workflow allows 60 minutes for setup, the
+command, and draining. These limits can be adjusted with
+`WITH_ATTIC_BUILD_TIMEOUT`, `WITH_ATTIC_DRAIN_TIMEOUT`,
+`WITH_ATTIC_UPLOAD_TIMEOUT`, and `WITH_ATTIC_UPLOAD_RETRIES` (positive integer
+seconds/counts without leading zeros).
+
+This integration targets the root, single-user Nix environment on the ephemeral
+runner. It refuses to replace an existing post-build hook. SIGINT/SIGTERM stop
+the command and attempt a bounded drain; SIGKILL, VM destruction, or a hard
+runner timeout cannot guarantee uploads. A failed upload remains a visible CI
+failure, not a claim that the artifact was cached.
+
+### CI credentials and rollout
+
+- `ATTIC_TOKEN` is a Gitea repository secret for `hinterland/hearth`, passed only
+  to the deployment step. The workflow remains manual and restricted to `master`.
+- The token grants pull/push only for `hectic`, without deletion or cache
+  administration. The current token expires **2027-09-09**; rotate it before then.
+- The wrapper stores it in a private temporary `0600` file, references that file
+  from Attic configuration, and removes `ATTIC_TOKEN` from child environments.
+  Neither the hook nor `NIX_CONFIG` contains the token. Cleanup removes private
+  files after the worker stops.
+- Never expose this credential to untrusted PR workflows or bake it into runner
+  images. A writer to this cache can publish artifacts trusted by its consumers.
+- The `hectic` cache is public for reads. Build outputs must not contain secrets
+  or content that must remain private; the wrapper uploads every successful local
+  output, not just the final system.
+- Workflow/package changes must be published to `master` before dispatched runs
+  use them. Creating the secret alone does not enable uploads in an existing run.
+
 ## Common issues
 
 ### `flake 'nixpkgs' does not provide attribute 'attic'`

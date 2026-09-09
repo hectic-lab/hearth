@@ -14,7 +14,7 @@ jobs:
     name: deploy neuro from performance node
     if: ${{ gitea.ref == 'refs/heads/master' }}
     runs-on: gross-nix-x86-perf
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       NIX_CONFIG: |
         extra-substituters = https://cache.nixos.org https://cache.hectic-lab.com/hectic
@@ -36,6 +36,7 @@ jobs:
 
       - name: Deploy neuro
         env:
+          ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
           NEURO_SSH_PRIVATE_KEY: ${{ secrets.NEURO_SSH_PRIVATE_KEY }}
           NEURO_SSH_KNOWN_HOSTS: ${{ secrets.NEURO_SSH_KNOWN_HOSTS }}
         run: |
@@ -69,5 +70,6 @@ jobs:
             -i "$HOME/.ssh/id_ed25519" \
             neuro true
           # Run deploy tool from checked-out Gitea revision; repository is not mirrored on GitHub.
-          nix run --refresh '.#deploy' -- \
-            push -- --flake '.#neuro|x86_64-linux' --target-host neuro --use-remote-sudo
+          nix run --refresh '.#with-attic-cache' -- -- \
+            nix run --refresh '.#deploy' -- \
+              push -- --flake '.#neuro|x86_64-linux' --target-host neuro --use-remote-sudo
