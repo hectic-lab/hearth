@@ -9,10 +9,13 @@ HECTIC_NAMESPACE="deploy"
 puressh() {
   local known_hosts="${HECTIC_DEPLOY_KNOWN_HOSTS:-$HOME/.ssh/known_hosts}"
   local identity_file="${HECTIC_DEPLOY_IDENTITY_FILE:-$HOME/.ssh/id_ed25519}"
-  # shellcheck disable=SC2068
+  local ssh_config="${HECTIC_DEPLOY_SSH_CONFIG:-}"
+  if [ -n "$ssh_config" ]; then
+    set -- -F "$ssh_config" "$@"
+  fi
   ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
     -o UserKnownHostsFile="$known_hosts" -o IdentitiesOnly=yes \
-    -i "$identity_file" $@
+    -i "$identity_file" "$@"
 }
 
 # echo <gens_list> | find_older_gen(gen) 

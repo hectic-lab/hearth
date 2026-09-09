@@ -60,6 +60,7 @@ jobs:
             > "$ssh_home/.ssh/config"
           chmod 600 "$ssh_home/.ssh/config"
           export HOME="$ssh_home"
+          export HECTIC_DEPLOY_SSH_CONFIG="$HOME/.ssh/config"
           export NIX_SSHOPTS="-F $HOME/.ssh/config -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o IdentitiesOnly=yes -i $HOME/.ssh/id_ed25519"
           ssh -F "$HOME/.ssh/config" -o BatchMode=yes -o ConnectTimeout=10 \
             -o StrictHostKeyChecking=yes \
