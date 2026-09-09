@@ -30,6 +30,43 @@ queue_empty() {
   ! ls "$pending_dir"/* >/dev/null 2>&1 && ! ls "$uploading_dir"/* >/dev/null 2>&1
 }
 
+count_records() {
+  dir=$1
+  count=0
+  for rec in "$dir"/*; do
+    [ -f "$rec" ] || continue
+    count=$((count + 1))
+  done
+  printf '%s\n' "$count"
+}
+
+count_failed_records() {
+  count=0
+  for rec in "$failed_dir"/*.tmp; do
+    [ -f "$rec" ] || continue
+    count=$((count + 1))
+  done
+  printf '%s\n' "$count"
+}
+
+log_paths_file() {
+  label=$1
+  paths_file=$2
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    log "$label: $path"
+  done < "$paths_file"
+}
+
+log_queue_summary() {
+  acknowledged=$(count_records "$done_dir")
+  unconfirmed=$(count_failed_records)
+  pending=$(count_records "$pending_dir")
+  uploading=$(count_records "$uploading_dir")
+  log "upload queue summary: acknowledged_records=$acknowledged unconfirmed_records=$unconfirmed pending_records=$pending uploading_records=$uploading"
+  log "upload queue summary note: acknowledged means attic client accepted a whole batch; unconfirmed failed batches may still contain remote partial successes"
+}
+
 write_state() {
   cat > "$state_file" <<EOF
 attic_bin='$attic_bin'
@@ -143,18 +180,37 @@ fail_claimed() {
 
 upload_once() {
   claim_batch || return 1
+  batch_count=0
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    batch_count=$((batch_count + 1))
+  done < "$batch_file"
   attempt=1
   while [ "$attempt" -le "$upload_retries" ]; do
+    log "upload batch: paths=$batch_count attempt=$attempt/$upload_retries deadline_seconds=$upload_timeout"
     if env -u ATTIC_TOKEN XDG_CONFIG_HOME="$xdg_config_home" \
       "$timeout_bin" --foreground -k 10 "$upload_timeout" \
       "$attic_bin" push --stdin --no-closure --jobs 2 "$attic_cache" \
       < "$batch_file"; then
+      log "upload batch accepted: paths=$batch_count attempt=$attempt/$upload_retries"
       finish_claimed
       return 0
+    else
+      rc=$?
     fi
+    case $rc in
+      124) log "upload batch attempt failed: paths=$batch_count attempt=$attempt/$upload_retries exit=124 class=deadline_timeout" ;;
+      137) log "upload batch attempt failed: paths=$batch_count attempt=$attempt/$upload_retries exit=137 class=forced_kill_or_timeout_kill" ;;
+      *) log "upload batch attempt failed: paths=$batch_count attempt=$attempt/$upload_retries exit=$rc class=attic_exit" ;;
+    esac
     attempt=$((attempt + 1))
-    [ "$attempt" -le "$upload_retries" ] && sleep "$upload_backoff"
+    if [ "$attempt" -le "$upload_retries" ]; then
+      log "upload batch retrying: paths=$batch_count next_attempt=$attempt/$upload_retries backoff_seconds=$upload_backoff"
+      sleep "$upload_backoff"
+    fi
   done
+  log "upload batch exhausted: paths=$batch_count attempts=$upload_retries"
+  log_paths_file "upload exhausted store path" "$batch_file"
   fail_claimed
   return 2
 }
@@ -364,7 +420,12 @@ else
   worker_status=$?
 fi
 [ "$signal_status" -ne 0 ] && build_status=$signal_status
+log_queue_summary
 
+if [ "$build_status" -eq 0 ] && [ "$worker_status" -eq 124 ]; then
+  log "build succeeded but final drain timed out"
+  exit 71
+fi
 if [ "$build_status" -eq 0 ] && [ "$worker_status" -ne 0 ]; then
   log "build succeeded but one or more uploads failed"
   exit 70
@@ -379,5 +440,8 @@ if [ "$build_status" -eq 0 ] && ! queue_empty; then
 fi
 if [ "$build_status" -ne 0 ] && [ -f "$upload_failed" ]; then
   log "build failed and one or more uploads also failed"
+fi
+if [ "$build_status" -ne 0 ] && [ "$worker_status" -eq 124 ]; then
+  log "build failed and final drain timed out"
 fi
 exit "$build_status"

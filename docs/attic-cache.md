@@ -191,11 +191,30 @@ The worker runs during the build and drains after success or failure. Uploads
 have bounded retries; exhausted uploads fail an otherwise successful command.
 If the build failed, its original exit status is preserved. Defaults are 30
 minutes for the wrapped command, 10 minutes for the final drain, and three
-120-second attempts per batch. The workflow allows 60 minutes for setup, the
-command, and draining. These limits can be adjusted with
+120-second attempts per batch of up to 32 paths. These limits can be adjusted with
 `WITH_ATTIC_BUILD_TIMEOUT`, `WITH_ATTIC_DRAIN_TIMEOUT`,
-`WITH_ATTIC_UPLOAD_TIMEOUT`, and `WITH_ATTIC_UPLOAD_RETRIES` (positive integer
-seconds/counts without leading zeros).
+`WITH_ATTIC_UPLOAD_TIMEOUT`, `WITH_ATTIC_UPLOAD_RETRIES`, and
+`WITH_ATTIC_BATCH_SIZE` (positive integer seconds/counts without leading zeros).
+
+The heavier `deploy-neuro` workflow overrides these defaults: 45 minutes for the
+command, batches of at most 8 paths, and 600 seconds per upload attempt. The
+upload deadline covers the **whole batch**, not each individual path. Its final
+drain remains bounded at 10 minutes; the 60-minute job budget leaves 5 minutes
+for setup. A prolonged cache outage can still exhaust that drain before every
+queued path is uploaded.
+
+The workflow also sets `fallback = true` in `NIX_CONFIG`, inherited by nested
+Nix commands. If substitution fails, Nix can build the affected derivation from
+source instead of aborting solely because the cache is unavailable. Caches and
+signature checks remain enabled. Fallback cannot fix an unavailable upstream
+source or a genuine compilation error, and rebuilding can consume more time.
+
+Uploader logs report each attempt's batch size, whole-batch deadline and exit
+status, distinguish deadline expiration from other failures, and list paths in
+exhausted batches. The final summary counts queue records: acknowledged,
+unconfirmed after exhausted attempts, pending and in flight. These are not
+unique artifact counts: an unsuccessful batch may already have uploaded some
+paths, and a successful retry can reuse those cached results.
 
 This integration targets the root, single-user Nix environment on the ephemeral
 runner. It refuses to replace an existing post-build hook. SIGINT/SIGTERM stop

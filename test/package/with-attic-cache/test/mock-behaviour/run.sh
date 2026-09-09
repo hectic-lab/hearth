@@ -74,6 +74,14 @@ if [ "${ATTIC_FAIL_MODE:-}" = transient ]; then
   printf '%s\n' "$count" > "$count_file"
   [ "$count" -eq 1 ] && exit 9
 fi
+if [ "${ATTIC_FAIL_MODE:-}" = timeout-once ]; then
+  count_file="$TEST_ROOT/timeout-count"
+  count=0
+  [ -f "$count_file" ] && count=$(cat "$count_file")
+  count=$((count + 1))
+  printf '%s\n' "$count" > "$count_file"
+  [ "$count" -eq 1 ] && exit 124
+fi
 [ "${ATTIC_FAIL_MODE:-}" = permanent ] && exit 10
 exit 0
 EOS
@@ -191,12 +199,29 @@ unset ATTIC_FAIL_MODE
 make_env
 common_env
 make_command
+export ATTIC_FAIL_MODE=timeout-once
+with-attic-cache -- "$bin/build-command" 2> "$root/timeout-once.err"
+[ "$(cat "$root/timeout-count")" -eq 2 ] || fail "timeout retry count"
+assert_file_contains "timeout attempt exit visible" "$root/timeout-once.err" 'exit=124 class=deadline_timeout'
+assert_file_contains "timeout retry logged" "$root/timeout-once.err" 'next_attempt=2/2'
+assert_file_contains "timeout retry success logged" "$root/timeout-once.err" 'upload batch accepted: paths=2 attempt=2/2'
+assert_file_contains "success final summary" "$root/timeout-once.err" 'acknowledged_records=2 unconfirmed_records=0 pending_records=0 uploading_records=0'
+unset ATTIC_FAIL_MODE
+
+make_env
+common_env
+make_command
 export ATTIC_FAIL_MODE=permanent
 export WITH_ATTIC_DRAIN_TIMEOUT=4
-if with-attic-cache -- "$bin/build-command"; then
+if with-attic-cache -- "$bin/build-command" 2> "$root/permanent.err"; then
   fail "permanent upload failure succeeded"
 fi
 [ "$(grep -c '^upload ' "$log")" -le 4 ] || fail "permanent failure retried indefinitely"
+assert_file_contains "permanent exhausted path visible" "$root/permanent.err" 'upload exhausted store path: .*/aaa-out'
+assert_file_contains "permanent final summary" "$root/permanent.err" 'acknowledged_records=0 unconfirmed_records=2 pending_records=0 uploading_records=0'
+if grep -q SECRET "$root/permanent.err"; then
+  fail "token appeared in permanent stderr"
+fi
 pass "permanent upload failure is nonzero after successful build"
 unset ATTIC_FAIL_MODE
 
@@ -206,10 +231,12 @@ make_command
 export ATTIC_FAIL_MODE=permanent
 export BUILD_EXIT=23
 set +e
-with-attic-cache -- "$bin/build-command"
+with-attic-cache -- "$bin/build-command" 2> "$root/build-fail.err"
 status=$?
 set -e
 [ "$status" -eq 23 ] || fail "build failure status preserved: $status"
+assert_file_contains "build failure final summary" "$root/build-fail.err" 'unconfirmed_records=2'
+assert_file_contains "build failure exhausted path visible" "$root/build-fail.err" 'upload exhausted store path: .*/bbb-out'
 pass "build failure status preserved while drain still runs"
 unset ATTIC_FAIL_MODE BUILD_EXIT
 
@@ -331,9 +358,11 @@ export ATTIC_HANG=1
 export WITH_ATTIC_DRAIN_TIMEOUT=1
 export WITH_ATTIC_UPLOAD_TIMEOUT=1
 export WITH_ATTIC_UPLOAD_RETRIES=1
-if with-attic-cache -- "$bin/build-command"; then
+if with-attic-cache -- "$bin/build-command" 2> "$root/drain-timeout.err"; then
   fail "hung attic returned success"
 fi
+assert_file_contains "drain timeout distinguished" "$root/drain-timeout.err" 'build succeeded but final drain timed out'
+assert_file_contains "drain timeout summary" "$root/drain-timeout.err" 'upload queue summary:'
 if [ -f "$root/attic-grandchild.pid" ]; then
   child=$(cat "$root/attic-grandchild.pid")
   i=0

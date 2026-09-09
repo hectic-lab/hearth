@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 60
     env:
       NIX_CONFIG: |
+        fallback = true
         extra-substituters = https://cache.nixos.org https://cache.hectic-lab.com/hectic
         trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= hectic:KMQsKow4SoA9K2vOJlOljmx7/Zpf91Yy+5qEtxDDCzA=
     steps:
@@ -31,12 +32,16 @@ jobs:
           set -eu
           uname -a
           nix --version
+          nix config show fallback
           nix config show substituters
           nix config show trusted-public-keys
 
       - name: Deploy neuro
         env:
           ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
+          WITH_ATTIC_BUILD_TIMEOUT: "2700"
+          WITH_ATTIC_UPLOAD_TIMEOUT: "600"
+          WITH_ATTIC_BATCH_SIZE: "8"
           NEURO_SSH_PRIVATE_KEY: ${{ secrets.NEURO_SSH_PRIVATE_KEY }}
           NEURO_SSH_KNOWN_HOSTS: ${{ secrets.NEURO_SSH_KNOWN_HOSTS }}
         run: |
