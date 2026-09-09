@@ -10,7 +10,7 @@ GCR_API="https://api.hetzner.cloud/v1"
 gcr_image_id_for_arch() {
     arch="$1"; label="${2:-}"
     nix_image=0
-    case "$label" in nix) nix_image=1 ;; esac
+    case "$label" in nix|gross-nix-*) nix_image=1 ;; esac
     case "$arch:$nix_image" in
         amd64:0) [ -n "${GCR_IMAGE_ID:-}" ] && printf '%s' "$GCR_IMAGE_ID" ;;
         arm64:0) [ -n "${GCR_ARM_IMAGE_ID:-}" ] && printf '%s' "$GCR_ARM_IMAGE_ID" ;;
@@ -308,14 +308,14 @@ case "$label" in
   curl -fsSL "https://releases.nixos.org/nix/nix-$GCR_NIX_VERSION/nix-$GCR_NIX_VERSION-\\\$nix_arch.tar.xz" -o /tmp/nix.tar.xz
   printf '%s  /tmp/nix.tar.xz\n' "\\\$nix_sha" | sha256sum -c -
   tar -xJf /tmp/nix.tar.xz -C /tmp
-  mkdir -p /var/lib/gcr-nix
-  mount --bind /var/lib/gcr-nix /nix
+  mkdir -p /nix
   getent group nixbld >/dev/null 2>&1 || groupadd --system nixbld
   for nixbld_user in 1 2 3 4 5 6 7 8 9 10; do
-    if ! id "nixbld$nixbld_user" >/dev/null 2>&1; then
+    if ! id "nixbld\\\$nixbld_user" >/dev/null 2>&1; then
       useradd --system --no-create-home --shell /usr/sbin/nologin \
-        --gid nixbld "nixbld$nixbld_user"
+        --gid nixbld "nixbld\\\$nixbld_user"
     fi
+    usermod --append --groups nixbld "nixbld\\\$nixbld_user"
   done
   /tmp/nix-$GCR_NIX_VERSION-\\\$nix_arch/install --no-daemon
   rm -rf /tmp/nix*
