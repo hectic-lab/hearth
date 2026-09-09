@@ -318,6 +318,7 @@ case "$label" in
     usermod --append --groups nixbld "nixbld\\\$nixbld_user"
   done
   /tmp/nix-$GCR_NIX_VERSION-\\\$nix_arch/install --no-daemon
+  ln -sf /root/.nix-profile/bin/nix /usr/local/bin/nix
   rm -rf /tmp/nix*
   ;;
 esac
