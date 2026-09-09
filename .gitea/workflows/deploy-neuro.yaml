@@ -19,7 +19,6 @@ jobs:
       NIX_CONFIG: |
         extra-substituters = https://cache.nixos.org https://cache.hectic-lab.com/hectic
         extra-trusted-public-keys = hectic:KMQsKow4SoA9K2vOJlOljmx7/Zpf91Yy+5qEtxDDCzA=
-      DEPLOY_REVISION: ${{ gitea.sha }}
     steps:
       - name: Checkout dispatched revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
@@ -68,6 +67,6 @@ jobs:
             -o IdentitiesOnly=yes \
             -i "$HOME/.ssh/id_ed25519" \
             neuro true
-          # Deploy tool intentionally uses requested GitHub flake; revision matches checkout.
-          nix run --refresh "github:hectic-lab/util.nix/${DEPLOY_REVISION}#deploy" -- \
+          # Run deploy tool from checked-out Gitea revision; repository is not mirrored on GitHub.
+          nix run --refresh '.#deploy' -- \
             push -- --flake '.#neuro|x86_64-linux' --target-host neuro --use-remote-sudo
