@@ -18,6 +18,7 @@ jobs:
     env:
       NIX_CONFIG: |
         fallback = true
+        http2 = false
         extra-substituters = https://cache.nixos.org https://cache.hectic-lab.com/hectic
         trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= hectic:KMQsKow4SoA9K2vOJlOljmx7/Zpf91Yy+5qEtxDDCzA=
     steps:
@@ -32,6 +33,7 @@ jobs:
           set -eu
           uname -a
           nix --version
+          nix config show http2
           nix config show fallback
           nix config show substituters
           nix config show trusted-public-keys

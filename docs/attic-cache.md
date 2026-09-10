@@ -286,10 +286,11 @@ own whole-batch deadline. The legacy `/previous/` endpoint stays read-only.
 The host's Attic package also restricts its AWS SDK rustls connector to HTTP/1.1
 after observed S3 `REFUSED_STREAM` failures. This is a reproducible, host-scoped
 derived Cargo vendor tree; the pinned input tree and Cargo.lock are unchanged.
-TLS certificate verification remains enabled, and client-to-nginx HTTP/2 is not
-disabled. The pinned crate path makes upstream changes fail visibly during a
-future upgrade. This mitigates the observed transport error, not every possible
-Hetzner S3 timeout.
+TLS certificate verification remains enabled. Nix clients now force HTTP/1.1 for
+cache pulls because the cache endpoint has produced HTTP/2 framing errors; the
+Attic upload client separately uses HTTP/1.1 upstream. The pinned crate path
+makes upstream changes fail visibly during a future upgrade. This mitigates the
+observed transport error, not every possible Hetzner S3 timeout.
 
 ### Cache pulls do not work
 

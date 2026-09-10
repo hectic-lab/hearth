@@ -20,6 +20,11 @@ jobs:
   smoke:
     name: nix label and flake smoke
     runs-on: nix
+    env:
+      NIX_CONFIG: |
+        http2 = false
+        extra-substituters = https://cache.nixos.org https://cache.hectic-lab.com/hectic
+        extra-trusted-public-keys = hectic:KMQsKow4SoA9K2vOJlOljmx7/Zpf91Yy+5qEtxDDCzA=
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4.2.2
@@ -28,6 +33,7 @@ jobs:
         run: |
           set -eu
           nix --version
+          nix config show http2
           nix config show substituters
           nix config show trusted-public-keys
 
