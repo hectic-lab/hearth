@@ -157,17 +157,17 @@ in
       };
       nixVersion = lib.mkOption {
         type = lib.types.str;
-        default = "2.28.3";
+        default = "2.35.0";
         description = "Nix release installed from the official static tarball at bootstrap.";
       };
       nixTarballSha256 = lib.mkOption {
         type = lib.types.str;
-        default = "85d1847d06d5d56167796d3f61cd992908de84584db3e700da031a782b59ea22";
+        default = "e828c574555f235f2ca47c4a1432f8a07905d5cf59f087e9581be56c238818db";
         description = "sha256 of the pinned Nix x86_64-linux tarball, verified at bootstrap.";
       };
       armNixTarballSha256 = lib.mkOption {
         type = lib.types.str;
-        default = "3dffb118772382e35526806fb97acc05df7ad6dc29dbe52b921b77e52e39f571";
+        default = "1916bd42cfd4a65d5642a4ca75be4fe55db0a67e5fa16e18808fb5b6d2365bf8";
         description = "sha256 of the pinned Nix aarch64-linux tarball, verified at bootstrap.";
       };
       debugSshPublicKey = lib.mkOption {
