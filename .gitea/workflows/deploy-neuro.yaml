@@ -2,8 +2,14 @@
 # yamllint disable rule:line-length
 name: deploy neuro
 
-on: # yamllint disable-line rule:truthy
+on:  # yamllint disable-line rule:truthy
   workflow_dispatch:
+    inputs:
+      upload_cache:
+        description: Upload build outputs to Attic
+        required: false
+        type: boolean
+        default: true
 
 concurrency:
   group: deploy-neuro
@@ -41,6 +47,7 @@ jobs:
       - name: Deploy neuro
         env:
           ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
+          UPLOAD_CACHE: ${{ inputs.upload_cache }}
           WITH_ATTIC_BUILD_TIMEOUT: "21600"
           WITH_ATTIC_DRAIN_TIMEOUT: "3600"
           WITH_ATTIC_UPLOAD_TIMEOUT: "600"
@@ -78,6 +85,20 @@ jobs:
             -i "$HOME/.ssh/id_ed25519" \
             neuro true
           # Run deploy tool from checked-out Gitea revision; repository is not mirrored on GitHub.
-          nix run --refresh '.#with-attic-cache' -- -- \
-            nix run --refresh '.#deploy' -- \
-              push -- --flake '.#neuro|x86_64-linux' --target-host neuro --use-remote-sudo
+          case "$UPLOAD_CACHE" in
+            true)
+              nix run --refresh '.#with-attic-cache' -- -- \
+                nix run --refresh '.#deploy' -- \
+                  push -- --flake '.#neuro|x86_64-linux' --target-host neuro --use-remote-sudo
+              ;;
+            false)
+              unset ATTIC_TOKEN
+              timeout --kill-after=60s 21600s \
+                nix run --refresh '.#deploy' -- \
+                  push -- --flake '.#neuro|x86_64-linux' --target-host neuro --use-remote-sudo
+              ;;
+            *)
+              printf 'unsupported upload_cache value: %s\n' "$UPLOAD_CACHE" >&2
+              exit 64
+              ;;
+          esac
