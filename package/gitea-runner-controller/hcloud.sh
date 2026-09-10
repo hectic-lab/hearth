@@ -225,6 +225,55 @@ gcr_vm_destroy() {
     fi
 }
 
+gcr_vm_public_ip() {
+    # gcr_vm_public_ip SERVER_ID -> ipv4 or empty
+    if gcr_hcloud_req GET "/servers/$1"; then
+        jq -r '.server.public_net.ipv4.ip // ""' "$GCR_LAST_BODY"
+    fi
+}
+
+gcr_vm_collect_diagnostics() {
+    vm_id="$1"; ip="$2"; job_id="$3"; reason="$4"
+
+    [ "${GCR_DESTROY_DIAGNOSTICS:-1}" = "1" ] || return 0
+    [ -n "$ip" ] || return 0
+    test -n "${GCR_SSH_PRIVKEY_FILE:-}" && test -r "$GCR_SSH_PRIVKEY_FILE" || {
+        gcr_log warn --ns=hcloud "skip diagnostics vm=$vm_id job=$job_id reason=$reason: SSH key unavailable"
+        return 0
+    }
+
+    key_tmp="$(mktemp "${TMPDIR:-/tmp}/gcr-diag-sshkey.XXXXXX")"
+    cat "$GCR_SSH_PRIVKEY_FILE" > "$key_tmp"
+    printf '\n' >> "$key_tmp"
+    chmod 0600 "$key_tmp"
+    timeout_sec="${GCR_DESTROY_DIAGNOSTICS_TIMEOUT_SEC:-20}"
+    ssh_opts="-i $key_tmp -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes"
+    diag_out="$(mktemp "${TMPDIR:-/tmp}/gcr-diag-out.XXXXXX")"
+
+    gcr_log warn --ns=hcloud "pre-destroy diagnostics begin vm=$vm_id ip=$ip job=$job_id reason=$reason timeout=${timeout_sec}s"
+    if timeout -k 5 "$timeout_sec" ssh $ssh_opts "root@$ip" \
+        'set +e
+         export LC_ALL=C
+         printf "== time ==\n"; date -u
+         printf "== uptime ==\n"; uptime
+         printf "== memory ==\n"; free -h
+         printf "== disk ==\n"; df -h / /nix /var/lib 2>/dev/null || df -h
+         printf "== pressure ==\n"; cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io 2>/dev/null
+         printf "== kernel failure signals ==\n"; dmesg -T 2>/dev/null | grep -Ei "out of memory|oom-kill|killed process|no space|I/O error|EXT4-fs error|xfs.*error|nvme.*error" | tail -n 80
+         printf "== runner service ==\n"; systemctl show gitea-runner.service -p ActiveState -p SubState -p Result -p ExecMainStatus -p ExecMainCode -p NRestarts 2>/dev/null
+         printf "== bootstrap service ==\n"; systemctl show gcr-bootstrap.service -p ActiveState -p SubState -p Result -p ExecMainStatus -p ExecMainCode 2>/dev/null
+         printf "== process sample ==\n"; ps -eo pid,ppid,stat,etime,comm 2>/dev/null | head -n 80' \
+        > "$diag_out" 2>&1; then
+        gcr_redact < "$diag_out" >&2
+        gcr_log warn --ns=hcloud "pre-destroy diagnostics complete vm=$vm_id job=$job_id reason=$reason"
+    else
+        gcr_redact < "$diag_out" >&2
+        gcr_log warn --ns=hcloud "pre-destroy diagnostics failed vm=$vm_id job=$job_id reason=$reason"
+    fi
+    rm -f "$key_tmp" "$diag_out"
+    return 0
+}
+
 # Bootstrap delivery is SSH-push from the controller. The MicroOS snapshot's
 # cloud-init cannot fetch user-data (Hetzner datasource DHCP failure), so the
 # controller drives provisioning over SSH using GCR_SSH_PRIVKEY_FILE, whose

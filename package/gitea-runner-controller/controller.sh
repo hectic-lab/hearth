@@ -33,6 +33,8 @@ gcr_sweep_ttl() {
             vm_id="$(gcr_record_field "$rec" vm_id)"
             gcr_log warn --ns=sweep "TTL exceeded job=$job_id age=${age}s max=${max_sec}s"
             if [ -n "$vm_id" ] && [ "$vm_id" != "null" ] && [ "$vm_id" != "0" ]; then
+                ip="$(gcr_vm_public_ip "$vm_id" || true)"
+                gcr_vm_collect_diagnostics "$vm_id" "$ip" "$job_id" ttl || true
                 gcr_vm_destroy "$vm_id" || true
                 gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"ttl\"}"
             fi
@@ -166,13 +168,6 @@ $runners
 EOF
 }
 
-gcr_vm_public_ip() {
-    # gcr_vm_public_ip SERVER_ID -> ipv4 or empty
-    if gcr_hcloud_req GET "/servers/$1"; then
-        jq -r '.server.public_net.ipv4.ip // ""' "$GCR_LAST_BODY"
-    fi
-}
-
 # Runs SSH-push bootstrap for VMs that were created but not yet provisioned.
 # Registration token is fetched fresh per attempt (short-lived usefulness).
 gcr_bootstrap_pending() {
@@ -193,6 +188,13 @@ gcr_bootstrap_pending() {
             completed:*)
                 gcr_log info --ns=sweep "pending job=$job_id already terminal ($state), destroying vm=$vm_id"
                 if [ -n "$vm_id" ] && [ "$vm_id" != "0" ] && [ "$vm_id" != "null" ]; then
+                    case "$state" in
+                        completed:success|completed:cancelled|completed:skipped) ;;
+                        *)
+                            ip="$(gcr_vm_public_ip "$vm_id" || true)"
+                            gcr_vm_collect_diagnostics "$vm_id" "$ip" "$job_id" "$state" || true
+                            ;;
+                    esac
                     gcr_vm_destroy "$vm_id" || true
                     gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"pending-job-completed\",\"state\":\"$state\"}"
                 fi
@@ -238,6 +240,13 @@ gcr_reap_finished_jobs() {
             completed:*)
                 gcr_log info --ns=sweep "job=$job_id terminal ($state), destroying vm=$vm_id"
                 if [ -n "$vm_id" ] && [ "$vm_id" != "0" ] && [ "$vm_id" != "null" ]; then
+                    case "$state" in
+                        completed:success|completed:cancelled|completed:skipped) ;;
+                        *)
+                            ip="$(gcr_vm_public_ip "$vm_id" || true)"
+                            gcr_vm_collect_diagnostics "$vm_id" "$ip" "$job_id" "$state" || true
+                            ;;
+                    esac
                     gcr_vm_destroy "$vm_id" || true
                     gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"job-completed\",\"state\":\"$state\"}"
                 fi

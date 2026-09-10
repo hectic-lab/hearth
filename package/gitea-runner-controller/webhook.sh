@@ -175,6 +175,13 @@ gcr_deallocate() {
 
     vm_id="$(gcr_record_field "$rec" vm_id)"
     if [ -n "$vm_id" ] && [ "$vm_id" != "null" ] && [ "$vm_id" != "0" ]; then
+        case "$new_status" in
+            completed:success|completed:cancelled|completed:skipped) ;;
+            completed:*)
+                ip="$(gcr_vm_public_ip "$vm_id" || true)"
+                gcr_vm_collect_diagnostics "$vm_id" "$ip" "$job_id" "$new_status" || true
+                ;;
+        esac
         gcr_vm_destroy "$vm_id" || true
         gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"$new_status\"}"
     fi
@@ -199,6 +206,7 @@ gcr_handle_webhook() {
     action="$(printf '%s' "$gcr_body" | jq -r '.action // ""')"
     job_id="$(printf '%s' "$gcr_body" | jq -r '.workflow_job.id // ""')"
     attempt="$(printf '%s' "$gcr_body" | jq -r '.workflow_job.run_attempt // ""')"
+    conclusion="$(printf '%s' "$gcr_body" | jq -r '.workflow_job.conclusion // ""')"
     repo="$(printf '%s' "$gcr_body" | jq -r '.repository.full_name // ""')"
     labels_json="$(printf '%s' "$gcr_body" | jq -c '.workflow_job.labels // []')"
 
@@ -220,7 +228,7 @@ gcr_handle_webhook() {
             RESPONSE_CODE=204
             ;;
         completed)
-            gcr_deallocate "$job_id" "$attempt" "completed"
+            gcr_deallocate "$job_id" "$attempt" "completed:${conclusion:-unknown}"
             RESPONSE_CODE=204
             ;;
         *)
