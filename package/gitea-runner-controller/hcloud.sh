@@ -341,7 +341,7 @@ set -eu
 nix_arch=""
 nix_sha=""
 case "$label" in
-  nix|gross-nix-x86|gross-nix-arm|gross-nix-x86-perf|gross-nix-mixed-econ)
+  nix|gross-nix-*)
   case "\$(uname -m)" in
     x86_64)
       nix_arch=x86_64-linux

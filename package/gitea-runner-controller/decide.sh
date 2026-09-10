@@ -14,6 +14,7 @@ gcr_server_hourly_rate() {
         cax21) printf '0.003' ;;
         cax31) printf '0.006' ;;
         cax41) printf '0.012' ;;
+        ccx53) printf '0.8550' ;;
         cpx52) printf '0.036' ;;
         cpx62) printf '0.072' ;;
         *) return 1 ;;
@@ -29,6 +30,7 @@ gcr_label_ttl() {
         gross-nix-x86) printf '180' ;;
         gross-nix-arm) printf '180' ;;
         gross-nix-x86-perf) printf '480' ;;
+        gross-nix-x86-highmem) printf '480' ;;
         gross-nix-mixed-econ) printf '180' ;;
         *) return 1 ;;
     esac
@@ -79,6 +81,10 @@ gcr_label_candidates() {
                 'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64' \
                 'cpx62 nbg1 amd64' 'cpx62 fsn1 amd64' 'cpx62 hel1 amd64' \
                 'cpx52 nbg1 amd64' 'cpx52 fsn1 amd64' 'cpx52 hel1 amd64'
+            ;;
+        gross-nix-x86-highmem)
+            printf '%s\n' \
+                'ccx53 nbg1 amd64' 'ccx53 fsn1 amd64' 'ccx53 hel1 amd64'
             ;;
         gross-nix-mixed-econ)
             printf '%s\n' \

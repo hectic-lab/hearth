@@ -32,10 +32,13 @@ def workflow_budget(path):
     with open(path, encoding="utf-8") as handle:
         data = yaml.safe_load(handle)
     job = data["jobs"]["deploy"]
+    workflow_on = data.get("on", data.get(True))
+    inputs = workflow_on["workflow_dispatch"]["inputs"]
     step = next(s for s in job["steps"] if s.get("name") == "Deploy neuro")
     env = step["env"]
     return {
         "label": job["runs-on"],
+        "runner_input": inputs["runner_label"],
         "workflow": int(job["timeout-minutes"]),
         "build": int(env["WITH_ATTIC_BUILD_TIMEOUT"]) // 60,
         "drain": int(env["WITH_ATTIC_DRAIN_TIMEOUT"]) // 60,
@@ -63,16 +66,23 @@ def shell_budgets(label):
 
 
 budget = workflow_budget(os.environ["WORKFLOW_FILE"])
-need(budget["label"] == "gross-nix-x86-perf", "unexpected deployment runner label")
+need(budget["label"] == "${{ gitea.event.inputs.runner_label || 'nix' }}", "unexpected deployment runner expression")
+need(budget["runner_input"]["default"] == "nix", "runner label default must stay nix")
+need(budget["runner_input"]["options"] == ["nix", "gross-nix-x86-perf", "gross-nix-x86-highmem"], "runner label choices drifted")
 need(budget["build"] > 0 and budget["drain"] > 0 and budget["upload"] > 0, "non-positive timeout")
 need(budget["build"] + budget["drain"] + 15 <= budget["workflow"], "workflow too short for build+drain")
 
-ttl, profile, grace, runner_timeout, other_ttls = shell_budgets(budget["label"])
+ttl, profile, grace, runner_timeout, other_ttls = shell_budgets("gross-nix-x86-perf")
 need(ttl == 480, f"expected 480m ttl, got {ttl}")
 need(profile.split()[1] == "480", f"profile ttl drifted: {profile}")
 need(all(line.endswith("=180") for line in other_ttls), f"default ttl drift: {other_ttls}")
 need(budget["workflow"] < runner_timeout, "workflow must be below runner timeout")
 need(minutes(os.environ["GITEA_WATCHDOG"]) >= budget["workflow"], "Gitea watchdog too short")
 need(ttl + grace >= budget["workflow"] + 15, "VM ttl lacks bootstrap allowance")
+
+highmem_ttl, highmem_profile, _, highmem_runner_timeout, _ = shell_budgets("gross-nix-x86-highmem")
+need(highmem_ttl == 480, f"expected highmem 480m ttl, got {highmem_ttl}")
+need(highmem_profile == "ccx53 480 0.8550", f"highmem profile drifted: {highmem_profile}")
+need(highmem_runner_timeout == 480, f"highmem runner timeout drifted: {highmem_runner_timeout}")
 
 print(f"PASS build={budget['build']}m drain={budget['drain']}m upload={budget['upload']}m workflow={budget['workflow']}m runner={runner_timeout}m ttl={ttl}m grace={grace}m watchdog={os.environ['GITEA_WATCHDOG']}")

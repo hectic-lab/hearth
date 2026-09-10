@@ -567,6 +567,7 @@ The `deploy-neuro` workflow uses these nested limits:
 | Final cache drain | 1 hour (`WITH_ATTIC_DRAIN_TIMEOUT=3600`) |
 | Workflow job | 435 minutes, including 15 minutes of setup/cleanup margin |
 | `gross-nix-x86-perf` runner | 480 minutes |
+| `gross-nix-x86-highmem` runner | 480 minutes |
 | Gitea `actions.ENDLESS_TASK_TIMEOUT` | 8 hours |
 | VM hard lifetime from allocation | 480 minutes plus 10-minute controller grace |
 
@@ -574,6 +575,12 @@ Other runner labels keep their existing 180-minute limits. Deploy the controller
 and Gitea watchdog settings before dispatching the longer workflow. Already
 allocated VMs retain the TTL and runner configuration assigned when they were
 created; updating the controller does not extend a running job.
+
+`gross-nix-x86-highmem` is an explicit costly high-memory escape hatch backed
+only by Hetzner CCX53 in `nbg1`, `fsn1`, or `hel1`; it may fall back by region
+only, never to a lower-RAM server type. Current Hetzner public pricing for
+Germany/Finland CCX53 is 0.8550 EUR/hour excluding IPv4, so one 480-minute
+allocation reserves 6.84 EUR against the controller budget before VM creation.
 
 These are maximum lifetimes: terminal jobs still trigger immediate VM teardown.
 The controller's budget reservation uses the full label TTL, so a long-running

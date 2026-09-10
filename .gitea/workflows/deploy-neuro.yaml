@@ -10,6 +10,15 @@ on:  # yamllint disable-line rule:truthy
         required: false
         type: boolean
         default: true
+      runner_label:
+        description: Runner label for deploy job
+        required: false
+        type: choice
+        default: nix
+        options:
+          - nix
+          - gross-nix-x86-perf
+          - gross-nix-x86-highmem
 
 concurrency:
   group: deploy-neuro
@@ -19,7 +28,7 @@ jobs:
   deploy:
     name: deploy neuro from performance node
     if: ${{ gitea.ref == 'refs/heads/master' }}
-    runs-on: gross-nix-x86-perf
+    runs-on: ${{ gitea.event.inputs.runner_label || 'nix' }}
     timeout-minutes: 435
     env:
       NIX_CONFIG: |
