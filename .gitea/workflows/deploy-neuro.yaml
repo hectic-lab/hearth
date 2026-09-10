@@ -42,7 +42,7 @@ jobs:
           WITH_ATTIC_BUILD_TIMEOUT: "21600"
           WITH_ATTIC_DRAIN_TIMEOUT: "3600"
           WITH_ATTIC_UPLOAD_TIMEOUT: "600"
-          WITH_ATTIC_BATCH_SIZE: "8"
+          WITH_ATTIC_BATCH_SIZE: "4"
           NEURO_SSH_PRIVATE_KEY: ${{ secrets.NEURO_SSH_PRIVATE_KEY }}
           NEURO_SSH_KNOWN_HOSTS: ${{ secrets.NEURO_SSH_KNOWN_HOSTS }}
         run: |
