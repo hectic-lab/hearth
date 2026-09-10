@@ -53,6 +53,43 @@ in
       default = [ ];
       description = "Device paths exposed to Immich for hardware acceleration.";
     };
+
+    storageBox = {
+      enable = lib.mkEnableOption "Hetzner Storage Box media storage";
+
+      host = lib.mkOption {
+        type = lib.types.strMatching "[A-Za-z0-9][A-Za-z0-9.-]*";
+        default = "u666713.your-storagebox.de";
+        description = "Hetzner Storage Box SMB hostname.";
+      };
+
+      username = lib.mkOption {
+        type = lib.types.strMatching "[A-Za-z0-9][A-Za-z0-9_-]*";
+        default = "u666713";
+        description = "Storage Box SMB username.";
+      };
+
+      share = lib.mkOption {
+        type = lib.types.strMatching "[A-Za-z0-9][A-Za-z0-9_-]*";
+        default = "backup";
+        description = "SMB share exported by Storage Box.";
+      };
+
+      subdirectory = lib.mkOption {
+        type = lib.types.strMatching "[A-Za-z0-9][A-Za-z0-9_./-]*";
+        default = "immich";
+        description = "Directory within the SMB share used by Immich.";
+      };
+
+      credentialsFile = lib.mkOption {
+        type = lib.types.nullOr (lib.types.strMatching "/[^[:space:]]+");
+        default = null;
+        description = ''
+          Runtime file containing the SMB password. Keep this in a SOPS
+          secret, outside the Nix store.
+        '';
+      };
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -60,6 +97,17 @@ in
       {
         assertion = cfg.secretsFile == null || !lib.hasPrefix "/nix/store/" cfg.secretsFile;
         message = "hectic.services.immich.secretsFile must reference a runtime secret path, not /nix/store.";
+      }
+      {
+        assertion = !cfg.storageBox.enable || cfg.storageBox.credentialsFile != null;
+        message = "hectic.services.immich.storageBox.credentialsFile is required when Storage Box is enabled.";
+      }
+      {
+        assertion =
+          !cfg.storageBox.enable
+          || cfg.storageBox.credentialsFile == null
+          || !lib.hasPrefix "/nix/store/" cfg.storageBox.credentialsFile;
+        message = "hectic.services.immich.storageBox.credentialsFile must reference a runtime secret path, not /nix/store.";
       }
     ];
 
@@ -91,5 +139,30 @@ in
         };
       };
     };
+
+    fileSystems.${toString cfg.mediaLocation} = lib.mkIf cfg.storageBox.enable {
+      device = "//${cfg.storageBox.host}/${cfg.storageBox.share}";
+      fsType = "cifs";
+      options = [
+        "_netdev"
+        "nofail"
+        "x-systemd.automount"
+        "x-systemd.idle-timeout=600"
+        "vers=3.1.1"
+        "seal"
+        "cache=none"
+        "credentials=${cfg.storageBox.credentialsFile}"
+        "username=${cfg.storageBox.username}"
+        "uid=${config.services.immich.user}"
+        "gid=${config.services.immich.group}"
+        "file_mode=0660"
+        "dir_mode=0770"
+        "prefixpath=${cfg.storageBox.subdirectory}"
+      ];
+    };
+
+    systemd.services.immich-server.serviceConfig.RequiresMountsFor = lib.mkIf cfg.storageBox.enable [
+      cfg.mediaLocation
+    ];
   };
 }
