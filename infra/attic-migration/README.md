@@ -4,6 +4,28 @@ Local-only operator tool for safe resumable Attic cache repack/migration. Parent
 
 ## Deployment layout
 
+### Operational state — 2026-09-10
+
+The primary `/hectic` endpoint now serves `nix-cache-hectic-lab` through
+`atticd-repacked`; the cutover was applied with NixOS `switch`. The original
+bucket/database remain preserved and readable at `/previous/hectic`.
+`/next/hectic` is an alias for the new backend. Existing public keys and CI
+tokens remain valid, and the primary endpoint is writable again.
+
+The migrated inventory contains 1343 paths and 1195 unique NAR hashes. The
+independent inventory comparison and aggregate full-read receipts are recorded
+in `/var/lib/attic-repack/verification-receipt.json`. Transient S3 504/read errors
+required retries; this is data-integrity evidence, not a claim that Hetzner's
+read availability is fixed.
+
+All migration, verification, seeding, and watcher jobs have been stopped for
+user-controlled load testing. Do not automatically restart bulk verification.
+The current generation is
+`/nix/store/s7x1n9zprjzagb9pvkl0k4igdgnbbchh-nixos-system-hectic-lab-25.11.20260526.25f5383`.
+The pinned rollback generation remains at
+`/var/lib/attic-repack/rollback-system`; backups remain private under
+`/var/lib/attic-repack/backups` and include the cache signing key.
+
 - Original backend: `atticd`, port 8081, `/var/lib/atticd/server.db`, bucket
   `cache-hectic-lab` in HEL1.
 - During the write freeze and after cutover the original backend runs in
@@ -30,9 +52,11 @@ Local-only operator tool for safe resumable Attic cache repack/migration. Parent
    Keep backups and manifests under private `/var/lib/attic-repack`; the SQLite
    backup includes the cache's private signing key.
 4. Restart the original backend for reads only, refresh the complete inventory,
-   migrate any final delta, then run unfiltered `verify`. Its exit status must be
-   zero; independently compare old/new store-path, NAR hash, size and metadata
-   inventories. `status` alone is not a cutover certificate.
+   migrate any final delta, then run unfiltered `verify` across all 1343 old
+   paths. Its exit status must be zero with zero exhausted payload verification
+   failures; independently compare old/new store-path, NAR hash, size and
+   metadata inventories from the databases. `status` alone is not a cutover
+   certificate.
 5. Pin the old/staging NixOS generation as a GC root, set `repackedActive = true`,
    build, inspect dry activation, and switch. `/hectic` now reaches the new
    backend; old data and `/previous/hectic` remain available.
@@ -64,7 +88,7 @@ Default state dir: `/var/lib/attic-repack` (`0700`). Raw NAR spool path:
 /var/lib/attic-repack/raw/{sha256hex}.nar
 ```
 
-Parent may seed this file directly. Tool always verifies SHA-256 and byte length before upload. Checkpoints live under `checkpoints/{store_path_hash}.json` and contain no keypair/token.
+Parent may seed this file directly. Tool always verifies SHA-256 and byte length before upload. Checkpoints live under `checkpoints/{store_path_hash}.json` and contain no keypair/token. Forced payload verification records a receipt with `payload_verified_at`, `payload_verify_attempts`, `payload_sha256`, and `payload_bytes` only after a complete successful read.
 
 ## Commands
 
@@ -109,12 +133,23 @@ Records also include upload metadata: `store_path_hash`, `references`, `system`,
   After stopping old writers and taking a consistent snapshot, run an unfiltered
   `verify` (no `--paths-file` or `--limit`) to reread every new NAR and reconcile
   all paths, metadata, hashes, and sizes before switching the primary endpoint.
+  Do not skip files, change expected hashes, or relax server/client timeouts to
+  pass this gate.
 - A local store path can differ from the historical cached NAR. Such a local
   copy is rejected and recovered from the original S3 chunks instead.
 - Old DB is opened readonly; old SQL NAR/chunk tables are never copied.
 - Missing local raw NARs are reconstructed from old S3 chunkrefs with per-object retries and chunk/full hash checks.
 - Upload uses Attic `PUT /_api/v1/upload-path` with JSON preamble plus raw uncompressed NAR.
-- New cache verification compares immutable metadata against old rendered narinfo and reads/decompresses one payload per verified path invocation.
+- New cache verification compares immutable metadata against old rendered narinfo
+  and reads/decompresses one payload per verified path invocation. Payload reads
+  make up to three fresh attempts for transport HTTP 408/429/5xx and truncated
+  body/decompressor EOF failures only. Each attempt follows a new GET/redirect,
+  starts SHA-256 and byte counts from zero, closes failed readers, and fails
+  immediately on hash mismatch, full-size mismatch, oversized payload, missing
+  URL, unsupported compression, or HTTP 4xx other than 408/429.
+- A receipt with retries proves the path was fully read and matched integrity; it
+  does not prove the storage provider is healthy. Treat retry events as provider
+  health signals separate from cutover correctness.
 - Authenticated HTTP is refused unless URL host is loopback.
 
 ## Local build/test

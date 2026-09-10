@@ -14,8 +14,10 @@ import argparse
 import concurrent.futures
 from collections import deque
 import contextlib
+import datetime
 import gzip
 import hashlib
+import http.client
 import itertools
 import io
 import json
@@ -51,12 +53,24 @@ class RepackError(RuntimeError):
     """Expected operational failure with sanitized message."""
 
 
+class PayloadIntegrityError(RepackError):
+    """Verified payload differs from immutable expected NAR identity."""
+
+
+class PayloadTransientError(RepackError):
+    """Retryable transport or truncated payload read failure."""
+
+
 def eprint(*args: object) -> None:
     print(*args, file=sys.stderr, flush=True)
 
 
 def now() -> float:
     return time.time()
+
+
+def utc_timestamp() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def require_private(path: pathlib.Path, directory: bool) -> None:
@@ -257,6 +271,40 @@ def sanitized_error(exc: BaseException) -> str:
     return exc.__class__.__name__
 
 
+def http_status_from_error(exc: BaseException) -> int | None:
+    if not isinstance(exc, RepackError):
+        return None
+    parts = str(exc).split()
+    if len(parts) >= 2 and parts[0] == "HTTP":
+        with contextlib.suppress(ValueError):
+            return int(parts[1])
+    return None
+
+
+def payload_error_class(exc: BaseException) -> str:
+    status = http_status_from_error(exc)
+    if status is not None:
+        return f"HTTP{status}"
+    return exc.__class__.__name__
+
+
+def is_transient_payload_error(exc: BaseException) -> bool:
+    if isinstance(exc, PayloadIntegrityError):
+        return False
+    if isinstance(exc, PayloadTransientError):
+        return True
+    status = http_status_from_error(exc)
+    if status is not None:
+        return status in (408, 429) or 500 <= status <= 599
+    if isinstance(exc, (TimeoutError, EOFError, http.client.IncompleteRead, http.client.HTTPException)):
+        return True
+    module = exc.__class__.__module__.split(".", 1)[0]
+    name = exc.__class__.__name__
+    if module in ("requests", "urllib3"):
+        return name in {"ConnectionError", "ReadTimeout", "Timeout", "ProtocolError", "ChunkedEncodingError"}
+    return name in {"ProtocolError", "IncompleteRead", "BadGzipFile", "LZMAError", "ZstdError"}
+
+
 def safe_headers(host: str | None = None, token: str | None = None) -> dict[str, str]:
     headers: dict[str, str] = {}
     if host:
@@ -395,6 +443,8 @@ class AtticClient:
                 current = next_url
                 continue
             if resp.status_code >= 400:
+                with contextlib.suppress(Exception):
+                    resp.close()
                 raise RepackError(f"HTTP {resp.status_code} GET {urllib.parse.urlsplit(current).path}")
             return resp
         raise RepackError("too many public redirects")
@@ -452,13 +502,37 @@ class AtticClient:
                         raise
                     time.sleep(0.5 * (2**attempt))
 
-    def verify_payload(self, narinfo: dict[str, Any], expected_hash: str, expected_size: int, narinfo_url: str) -> None:
+    def verify_payload(self, narinfo: dict[str, Any], expected_hash: str, expected_size: int, narinfo_url: str, store_path: str | None = None, max_attempts: int = 3) -> dict[str, Any]:
         raw_url = narinfo.get("URL")
         if not raw_url:
             raise RepackError("new narinfo missing URL")
         url = urllib.parse.urljoin(narinfo_url, raw_url)
-        resp = self._public_stream(url)
         compression = (narinfo.get("Compression") or pathlib.PurePosixPath(raw_url).suffix.lstrip(".")).lower()
+        if compression not in ("zstd", "zst", "", "none", "gzip", "gz", "xz"):
+            raise RepackError(f"unsupported new nar compression {compression}")
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                digest, size = self._verify_payload_attempt(url, compression, expected_hash, expected_size)
+                return {"attempts": attempt, "sha256": digest, "bytes": size}
+            except Exception as exc:
+                if not is_transient_payload_error(exc) or attempt >= max_attempts:
+                    raise
+                event = {
+                    "payload_verify_retry": True,
+                    "publicStorePath": store_path,
+                    "expectedNARhash": "sha256:" + expected_hash,
+                    "expectedNARsize": expected_size,
+                    "attempt": attempt,
+                    "max_attempts": max_attempts,
+                    "errorclass": payload_error_class(exc),
+                }
+                eprint(json.dumps(event, sort_keys=True))
+                time.sleep(0.5 * (2 ** (attempt - 1)))
+        raise RepackError("payload verification retry loop exhausted")
+
+    def _verify_payload_attempt(self, url: str, compression: str, expected_hash: str, expected_size: int) -> tuple[str, int]:
+        resp = self._public_stream(url)
         h = hashlib.sha256()
         size = 0
         source = resp.raw
@@ -475,16 +549,27 @@ class AtticClient:
         try:
             with contextlib.closing(reader):
                 while True:
-                    data = reader.read(CHUNK)
+                    try:
+                        data = reader.read(CHUNK)
+                    except Exception as exc:
+                        if is_transient_payload_error(exc):
+                            raise PayloadTransientError(payload_error_class(exc)) from exc
+                        raise
                     if not data:
                         break
                     h.update(data)
                     size += len(data)
+                    if size > expected_size:
+                        raise PayloadIntegrityError("new NAR payload larger than expected")
         finally:
             with contextlib.suppress(Exception):
                 resp.close()
-        if h.hexdigest() != expected_hash or size != expected_size:
-            raise RepackError("new NAR payload hash/size mismatch")
+        digest = h.hexdigest()
+        if size < expected_size:
+            raise PayloadTransientError("short new NAR payload")
+        if digest != expected_hash or size != expected_size:
+            raise PayloadIntegrityError("new NAR payload hash/size mismatch")
+        return digest, size
 
 
 class PrefixFileBody:
@@ -539,7 +624,7 @@ class InventoryDB:
         return con
 
     def cache_row(self) -> dict[str, Any]:
-        with self.connect() as con:
+        with contextlib.closing(self.connect()) as con:
             row = con.execute(
                 "select name,keypair,is_public,store_dir,priority,upstream_cache_key_names,retention_period "
                 "from cache where name=? and deleted_at is null",
@@ -558,7 +643,7 @@ class InventoryDB:
             "order by o.store_path"
         )
         args: list[Any] = [self.cache]
-        with self.connect() as con:
+        with contextlib.closing(self.connect()) as con:
             rows = con.execute(sql, args).fetchall()
         out: list[dict[str, Any]] = []
         for row in rows:
@@ -580,7 +665,7 @@ class InventoryDB:
             "select cr.seq,ch.chunk_hash,ch.chunk_size,ch.file_hash,ch.file_size,ch.compression,ch.remote_file,ch.state "
             "from chunkref cr join chunk ch on ch.id=cr.chunk_id where cr.nar_id=? order by cr.seq"
         )
-        with self.connect() as con:
+        with contextlib.closing(self.connect()) as con:
             return [dict(r) for r in con.execute(sql, (nar_id,)).fetchall()]
 
 
@@ -620,7 +705,7 @@ class State:
     def get_checkpoint(self, record: dict[str, Any]) -> dict[str, Any]:
         return load_json(self.checkpoint_path(record["store_path_hash"]), {})
 
-    def set_checkpoint(self, record: dict[str, Any], status: str, tries: int, error: str | None = None) -> None:
+    def set_checkpoint(self, record: dict[str, Any], status: str, tries: int, error: str | None = None, payload_receipt: dict[str, Any] | None = None) -> None:
         value = {
             "store_path": record["store_path"],
             "store_path_hash": record["store_path_hash"],
@@ -632,6 +717,19 @@ class State:
         }
         if error:
             value["error"] = sanitized_error(RepackError(error))
+        if status == "verified":
+            if payload_receipt is not None:
+                value.update({
+                    "payload_verified_at": utc_timestamp(),
+                    "payload_verify_attempts": int(payload_receipt["attempts"]),
+                    "payload_sha256": str(payload_receipt["sha256"]),
+                    "payload_bytes": int(payload_receipt["bytes"]),
+                })
+            else:
+                previous = self.get_checkpoint(record)
+                for key in ("payload_verified_at", "payload_verify_attempts", "payload_sha256", "payload_bytes"):
+                    if key in previous:
+                        value[key] = previous[key]
         atomic_json(self.checkpoint_path(record["store_path_hash"]), value)
 
 
@@ -870,11 +968,13 @@ class Migrator:
             tries = int(self.state.get_checkpoint(record).get("tries", 0)) + 1
             try:
                 if verify_only:
-                    if not self.verify_record(record, force_payload=True):
+                    result = self.verify_record(record, force_payload=True)
+                    if not result:
                         raise RepackError("new narinfo missing")
                 else:
-                    self.migrate_record(record)
-                self.state.set_checkpoint(record, "verified", tries)
+                    result = self.migrate_record(record)
+                receipt = result if isinstance(result, dict) else None
+                self.state.set_checkpoint(record, "verified", tries, payload_receipt=receipt)
                 q.put(("ok", record["store_path"]))
             except Exception as exc:
                 self.state.set_checkpoint(record, "failed", tries, sanitized_error(exc))
@@ -893,20 +993,22 @@ class Migrator:
                 fut.result()
         return failures
 
-    def migrate_record(self, record: dict[str, Any]) -> None:
+    def migrate_record(self, record: dict[str, Any]) -> dict[str, Any] | None:
         cp = self.state.get_checkpoint(record)
         if cp.get("status") == "verified" and cp.get("metadata_fingerprint") == metadata_fingerprint(record):
             if self.verify_record(record, force_payload=False):
-                return
+                return None
         nar_path = self.ensure_raw_nar(record)
         actual_hash, actual_size = sha256_file(nar_path)
         if actual_hash != nar_hash_hex(record["nar_hash"]) or actual_size != int(record["nar_size"]):
             raise RepackError("raw NAR spool hash/size mismatch")
         self.new_client.upload(record, nar_path)
-        if not self.verify_record(record, force_payload=True):
+        result = self.verify_record(record, force_payload=True)
+        if not result:
             raise RepackError("new narinfo missing after upload")
+        return result if isinstance(result, dict) else None
 
-    def verify_record(self, record: dict[str, Any], force_payload: bool) -> bool:
+    def verify_record(self, record: dict[str, Any], force_payload: bool) -> bool | dict[str, Any]:
         narinfo = self.new_client.get_narinfo(record["store_path_hash"])
         if narinfo is None:
             return False
@@ -921,7 +1023,7 @@ class Migrator:
         if diffs:
             raise RepackError("new narinfo immutable metadata mismatch: " + ",".join(diffs))
         if force_payload:
-            self.new_client.verify_payload(narinfo, nar_hash_hex(record["nar_hash"]), int(record["nar_size"]), self.new_client.narinfo_url(record["store_path_hash"]))
+            return self.new_client.verify_payload(narinfo, nar_hash_hex(record["nar_hash"]), int(record["nar_size"]), self.new_client.narinfo_url(record["store_path_hash"]), record.get("store_path"))
         return True
 
     def ensure_raw_nar(self, record: dict[str, Any]) -> pathlib.Path:

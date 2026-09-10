@@ -26,12 +26,13 @@ class FakeResponse:
         self._json = json_data
         self.raw = raw or io.BytesIO(content)
         self.headers = headers or {}
+        self.close_count = 0
 
     def json(self):
         return self._json
 
     def close(self):
-        pass
+        self.close_count += 1
 
 
 class FakeSession:
@@ -279,6 +280,61 @@ class RepackTests(unittest.TestCase):
         self.assertNotEqual(seen["s3_host"], "cache.hectic-lab.com")
         self.assertIsNone(seen["s3_auth"])
 
+    def test_payload_retry_truncated_then_full_resets_hash(self):
+        data = b"complete NAR bytes"
+        client = repack.AtticClient("http://127.0.0.1:8082", "hectic", None, None)
+        sess = FakeSession(); client._local.session = sess
+        responses = [FakeResponse(200, content=data[:4]), FakeResponse(200, content=data)]
+
+        def get(_method, _url, _kwargs):
+            return responses.pop(0)
+
+        sess.routes[("GET", "http://127.0.0.1:8082/hectic/nar/x")] = get
+        with mock.patch("time.sleep") as sleep:
+            receipt = client.verify_payload({"URL": "nar/x", "Compression": "none"}, sha(data), len(data), "http://127.0.0.1:8082/hectic/abcd.narinfo", "/nix/store/abcd-name")
+        self.assertEqual(receipt, {"attempts": 2, "sha256": sha(data), "bytes": len(data)})
+        self.assertEqual(len(sess.calls), 2)
+        self.assertEqual(sleep.call_count, 1)
+
+    def test_payload_persistent_timeouts_fail_after_three(self):
+        client = repack.AtticClient("http://127.0.0.1:8082", "hectic", None, None)
+        sess = FakeSession(); client._local.session = sess
+
+        def timeout(_method, _url, _kwargs):
+            raise TimeoutError()
+
+        sess.routes[("GET", "http://127.0.0.1:8082/hectic/nar/x")] = timeout
+        with mock.patch("time.sleep") as sleep, self.assertRaises(TimeoutError):
+            client.verify_payload({"URL": "nar/x", "Compression": "none"}, sha(b"x"), 1, "http://127.0.0.1:8082/hectic/abcd.narinfo")
+        self.assertEqual(len(sess.calls), 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_payload_full_size_wrong_hash_fails_after_one(self):
+        client = repack.AtticClient("http://127.0.0.1:8082", "hectic", None, None)
+        sess = FakeSession(); client._local.session = sess
+        sess.routes[("GET", "http://127.0.0.1:8082/hectic/nar/x")] = FakeResponse(200, content=b"bad")
+        with self.assertRaises(repack.PayloadIntegrityError):
+            client.verify_payload({"URL": "nar/x", "Compression": "none"}, sha(b"nar"), 3, "http://127.0.0.1:8082/hectic/abcd.narinfo")
+        self.assertEqual(len(sess.calls), 1)
+
+    def test_payload_oversize_fails_after_one(self):
+        client = repack.AtticClient("http://127.0.0.1:8082", "hectic", None, None)
+        sess = FakeSession(); client._local.session = sess
+        sess.routes[("GET", "http://127.0.0.1:8082/hectic/nar/x")] = FakeResponse(200, content=b"toolong")
+        with self.assertRaises(repack.PayloadIntegrityError):
+            client.verify_payload({"URL": "nar/x", "Compression": "none"}, sha(b"too"), 3, "http://127.0.0.1:8082/hectic/abcd.narinfo")
+        self.assertEqual(len(sess.calls), 1)
+
+    def test_payload_http_403_no_retry_and_closes(self):
+        client = repack.AtticClient("http://127.0.0.1:8082", "hectic", None, None)
+        sess = FakeSession(); client._local.session = sess
+        resp = FakeResponse(403)
+        sess.routes[("GET", "http://127.0.0.1:8082/hectic/nar/x")] = resp
+        with self.assertRaises(repack.RepackError):
+            client.verify_payload({"URL": "nar/x", "Compression": "none"}, sha(b"x"), 1, "http://127.0.0.1:8082/hectic/abcd.narinfo")
+        self.assertEqual(len(sess.calls), 1)
+        self.assertEqual(resp.close_count, 1)
+
     def test_auth_api_redirect_refused(self):
         tp = repack.TokenProvider(None, None, "hectic")
         tp._token = "tok"; tp._expires = repack.now() + 3600
@@ -409,13 +465,45 @@ class RepackTests(unittest.TestCase):
             mig.selected_records = lambda: [record]
             mig.new_client = mock.Mock()
             mig.new_client.get_narinfo.return_value = {**repack.expected_narinfo(record), "URL": "nar/x", "Compression": "none"}
-            mig.new_client.verify_payload.return_value = None
+            mig.new_client.verify_payload.return_value = {"attempts": 1, "sha256": sha(b"abc"), "bytes": 3}
             mig.new_client.narinfo_url.return_value = "http://127.0.0.1:8082/hectic/abcd.narinfo"
             mig.old_client = mock.Mock()
             mig.old_client.get_narinfo.return_value = {**repack.expected_narinfo(record)}
             mig.migrate(True)
             mig.new_client.upload.assert_not_called()
             mig.new_client.verify_payload.assert_called_once()
+
+    def test_payload_receipt_only_for_forced_successful_full_read(self):
+        with tempfile.TemporaryDirectory() as td:
+            mig = repack.Migrator(self.args(td))
+            record = self.record(b"abc")
+            mig.selected_records = lambda: [record]
+            narinfo = {**repack.expected_narinfo(record), "URL": "nar/x", "Compression": "none"}
+            old_info = {**repack.expected_narinfo(record)}
+            mig.old_client = mock.Mock(); mig.old_client.get_narinfo.return_value = old_info
+            mig.new_client = mock.Mock(); mig.new_client.get_narinfo.return_value = narinfo; mig.new_client.narinfo_url.return_value = "http://127.0.0.1/hectic/abcd.narinfo"
+            mig.new_client.verify_payload.return_value = {"attempts": 2, "sha256": sha(b"abc"), "bytes": 3}
+            self.assertEqual(mig.migrate(True), 0)
+            cp = mig.state.get_checkpoint(record)
+            self.assertEqual(cp["payload_verify_attempts"], 2)
+            self.assertEqual(cp["payload_sha256"], sha(b"abc"))
+            self.assertEqual(cp["payload_bytes"], 3)
+            self.assertTrue(cp["payload_verified_at"].endswith("Z"))
+            first_verified_at = cp["payload_verified_at"]
+
+            mig.new_client.verify_payload.reset_mock()
+            self.assertEqual(mig.migrate(False), 0)
+            cp = mig.state.get_checkpoint(record)
+            self.assertEqual(cp["payload_verified_at"], first_verified_at)
+            mig.new_client.verify_payload.assert_not_called()
+
+            mig.new_client.get_narinfo.return_value = narinfo
+            mig.new_client.verify_payload.side_effect = repack.PayloadIntegrityError("new NAR payload hash/size mismatch")
+            self.assertEqual(mig.migrate(True), 1)
+            cp = mig.state.get_checkpoint(record)
+            self.assertEqual(cp["status"], "failed")
+            self.assertNotIn("payload_verified_at", cp)
+            self.assertNotIn("payload_sha256", cp)
 
     def test_key_redaction(self):
         secret = "eyJhbGciOiPRIVATEKEYX-Amz-Signature=abc"

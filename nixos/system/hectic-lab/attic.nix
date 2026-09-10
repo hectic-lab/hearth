@@ -7,8 +7,8 @@
   pkgs,
   ...
 }: let
-  repackedActive = false;
-  migrationWriteFreeze = true;
+  repackedActive = true;
+  migrationWriteFreeze = false;
 
   repackedSettings = config.services.atticd.settings // {
     listen = "127.0.0.1:8082";
