@@ -45,6 +45,33 @@ if !pkgs.stdenv.hostPlatform.isLinux then {} else let
       ${builtins.readFile ./launch.sh}
       mkdir -p "$out"
     '';
-in lib.mapAttrs' (name: drv:
-  lib.nameValuePair "with-attic-cache-${name}" (mkTest name drv)
-) testDrvs
+
+  timeBudgets = pkgs.runCommand "with-attic-cache-time-budgets"
+    {
+      nativeBuildInputs = [
+        (pkgs.python3.withPackages (p: [ p.pyyaml ]))
+        pkgs.dash
+      ];
+      DASH = "${pkgs.dash}/bin/dash";
+      WORKFLOW_FILE = ../../../.gitea/workflows/deploy-neuro.yaml;
+      DECIDE_SH = ../../../package/gitea-runner-controller/decide.sh;
+      CONTROLLER_SH = ../../../package/gitea-runner-controller/controller.sh;
+      HCLOUD_SH = ../../../package/gitea-runner-controller/hcloud.sh;
+      GCR_GITEA_URL = "https://example.invalid";
+      GCR_NIX_VERSION = "2.24.0";
+      GCR_NIX_TARBALL_SHA256 = "dummy-x86-nix-sha256";
+      GCR_ARM_NIX_TARBALL_SHA256 = "dummy-arm-nix-sha256";
+      GCR_ACT_RUNNER_VERSION = "0.2.11";
+      GCR_ACT_RUNNER_SHA256 = "dummy-runner-sha256";
+      GITEA_WATCHDOG = self.nixosConfigurations."hectic-lab|x86_64-linux".config.services.gitea.settings.actions.ENDLESS_TASK_TIMEOUT;
+    } ''
+      python ${./time-budgets.py}
+      mkdir -p "$out"
+    '';
+
+  discoveredTests = lib.mapAttrs' (name: drv:
+    lib.nameValuePair "with-attic-cache-${name}" (mkTest name drv)
+  ) testDrvs;
+in discoveredTests // {
+  with-attic-cache-time-budgets = timeBudgets;
+}

@@ -10,6 +10,14 @@
   repackedActive = true;
   migrationWriteFreeze = false;
 
+  uploadProxyConfig = ''
+    # Stream large NARs and tolerate S3 backpressure while Attic reads them.
+    proxy_http_version 1.1;
+    proxy_request_buffering off;
+    proxy_send_timeout 600s;
+    proxy_read_timeout 600s;
+  '';
+
   repackedSettings = config.services.atticd.settings // {
     listen = "127.0.0.1:8082";
     allowed-hosts = [ "cache.${domain}" ];
@@ -54,6 +62,20 @@ in {
 
   # Slow S3 chunk reads can exceed the SDK's default 20-second stall grace.
   services.atticd.package = pkgs.attic-server.overrideAttrs (old: {
+    # Restrict the SDK TLS connector to HTTP/1.1 after S3 REFUSED_STREAM errors.
+    cargoDeps = pkgs.runCommand "attic-cargo-vendor-http1" { } ''
+      mkdir "$out"
+      shopt -s dotglob
+      for entry in ${old.cargoDeps}/*; do
+        ln -s "$entry" "$out/$(basename "$entry")"
+      done
+      crate=aws-smithy-http-client-1.0.6
+      rm "$out/$crate"
+      cp -rL ${old.cargoDeps}/"$crate" "$out/$crate"
+      chmod -R u+w "$out/$crate"
+      substituteInPlace "$out/$crate/src/client/tls.rs" \
+        --replace-fail '.enable_http2()' ""
+    '';
     postPatch = (old.postPatch or "") + ''
       substituteInPlace server/src/storage/s3.rs \
         --replace-fail 'let mut builder = S3ConfigBuilder::from(&shared_config);' \
@@ -110,6 +132,14 @@ in {
         # Allow quiet periods while Attic fetches NAR chunks from object storage.
         proxy_read_timeout 300s;
       '';
+    };
+    locations."= /_api/v1/upload-path" = lib.mkIf (repackedActive || !migrationWriteFreeze) {
+      proxyPass = if repackedActive then "http://127.0.0.1:8082" else "http://127.0.0.1:8081";
+      extraConfig = uploadProxyConfig;
+    };
+    locations."= /next/_api/v1/upload-path" = {
+      proxyPass = "http://127.0.0.1:8082/_api/v1/upload-path";
+      extraConfig = uploadProxyConfig;
     };
     locations."/previous/" = {
       proxyPass = "http://127.0.0.1:8081/";

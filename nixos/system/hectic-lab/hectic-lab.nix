@@ -355,6 +355,8 @@ in {
       package = pkgs.hectic.gitea-heatmap;
       settings.service.DISABLE_REGISTRATION = true;
       settings.actions.ENABLED = true;
+      # Long CUDA builds must not hit Gitea's default three-hour task watchdog.
+      settings.actions.ENDLESS_TASK_TIMEOUT = "8h";
       settings.server = {
         HTTP_PORT  = 11011;
         SSH_PORT   = sshPort;

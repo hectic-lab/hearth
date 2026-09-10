@@ -20,8 +20,10 @@ read availability is fixed.
 
 All migration, verification, seeding, and watcher jobs have been stopped for
 user-controlled load testing. Do not automatically restart bulk verification.
-The current generation is
-`/nix/store/s7x1n9zprjzagb9pvkl0k4igdgnbbchh-nixos-system-hectic-lab-25.11.20260526.25f5383`.
+The transport-fix generation is
+`/nix/store/mjx3gzrh03vq22j5nmrzwa56kfhdn702-nixos-system-hectic-lab-25.11.20260526.25f5383`
+with the HTTP/1.1 S3 transport and upload-proxy timeout correction. Check
+`/run/current-system` to confirm the active deployment.
 The pinned rollback generation remains at
 `/var/lib/attic-repack/rollback-system`; backups remain private under
 `/var/lib/attic-repack/backups` and include the cache signing key.

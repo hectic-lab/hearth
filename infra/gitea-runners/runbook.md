@@ -557,6 +557,32 @@ Org-level (preferred) or per-repo, on `https://gitea.hectic-lab.com`:
 - Secret: value of `gitea/hectic-lab/controller/webhook-secret`
 - Trigger events: `Workflow jobs` only (`workflow_job`)
 
+### Long CUDA/Magma deployment time budgets
+
+The `deploy-neuro` workflow uses these nested limits:
+
+| Layer | Limit |
+| --- | --- |
+| Wrapped build/deploy command | 6 hours (`WITH_ATTIC_BUILD_TIMEOUT=21600`) |
+| Final cache drain | 1 hour (`WITH_ATTIC_DRAIN_TIMEOUT=3600`) |
+| Workflow job | 435 minutes, including 15 minutes of setup/cleanup margin |
+| `gross-nix-x86-perf` runner | 480 minutes |
+| Gitea `actions.ENDLESS_TASK_TIMEOUT` | 8 hours |
+| VM hard lifetime from allocation | 480 minutes plus 10-minute controller grace |
+
+Other runner labels keep their existing 180-minute limits. Deploy the controller
+and Gitea watchdog settings before dispatching the longer workflow. Already
+allocated VMs retain the TTL and runner configuration assigned when they were
+created; updating the controller does not extend a running job.
+
+These are maximum lifetimes: terminal jobs still trigger immediate VM teardown.
+The controller's budget reservation uses the full label TTL, so a long-running
+label reserves more of the existing monthly budget. Do not raise that budget or
+disable timeout safeguards just to bypass a refused allocation.
+
+After changing any timeout, verify the complete chain rather than only
+`timeout-minutes`; a shorter wrapper, runner, server watchdog, or VM TTL wins.
+
 ### Pre-flight verification (before first real job)
 
 ```sh

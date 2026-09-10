@@ -14,7 +14,7 @@ jobs:
     name: deploy neuro from performance node
     if: ${{ gitea.ref == 'refs/heads/master' }}
     runs-on: gross-nix-x86-perf
-    timeout-minutes: 60
+    timeout-minutes: 435
     env:
       NIX_CONFIG: |
         fallback = true
@@ -39,7 +39,8 @@ jobs:
       - name: Deploy neuro
         env:
           ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
-          WITH_ATTIC_BUILD_TIMEOUT: "2700"
+          WITH_ATTIC_BUILD_TIMEOUT: "21600"
+          WITH_ATTIC_DRAIN_TIMEOUT: "3600"
           WITH_ATTIC_UPLOAD_TIMEOUT: "600"
           WITH_ATTIC_BATCH_SIZE: "8"
           NEURO_SSH_PRIVATE_KEY: ${{ secrets.NEURO_SSH_PRIVATE_KEY }}

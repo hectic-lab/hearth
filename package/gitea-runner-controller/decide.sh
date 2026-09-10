@@ -28,7 +28,7 @@ gcr_label_ttl() {
         gross-mixed-econ) printf '180' ;;
         gross-nix-x86) printf '180' ;;
         gross-nix-arm) printf '180' ;;
-        gross-nix-x86-perf) printf '180' ;;
+        gross-nix-x86-perf) printf '480' ;;
         gross-nix-mixed-econ) printf '180' ;;
         *) return 1 ;;
     esac

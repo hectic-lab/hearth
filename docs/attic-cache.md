@@ -196,12 +196,20 @@ minutes for the wrapped command, 10 minutes for the final drain, and three
 `WITH_ATTIC_UPLOAD_TIMEOUT`, `WITH_ATTIC_UPLOAD_RETRIES`, and
 `WITH_ATTIC_BATCH_SIZE` (positive integer seconds/counts without leading zeros).
 
-The heavier `deploy-neuro` workflow overrides these defaults: 45 minutes for the
-command, batches of at most 8 paths, and 600 seconds per upload attempt. The
+The heavier `deploy-neuro` workflow overrides these defaults: 6 hours for the
+build/deploy command, batches of at most 8 paths, and 600 seconds per upload attempt. The
 upload deadline covers the **whole batch**, not each individual path. Its final
-drain remains bounded at 10 minutes; the 60-minute job budget leaves 5 minutes
-for setup. A prolonged cache outage can still exhaust that drain before every
-queued path is uploaded.
+drain is bounded at 1 hour; the 435-minute job budget leaves 15 minutes for setup
+and cleanup. The `gross-nix-x86-perf` runner limit and Gitea's endless-task
+watchdog are 8 hours. The VM lifetime starts at allocation and includes the
+controller's additional 10-minute grace. A prolonged cache outage can still
+exhaust the drain before every queued path is uploaded.
+
+The build timeout covers the entire wrapped command, not each derivation.
+Completed outputs can be reused from the cache, but an interrupted CUDA/Magma
+compilation does not produce a cacheable output or resume on the next ephemeral
+runner. Exit code 124 with `interrupted by the user` can therefore mean the
+wrapper deadline expired, not that someone manually cancelled the job.
 
 The workflow also sets `fallback = true` in `NIX_CONFIG`, inherited by nested
 Nix commands. If substitution fails, Nix can build the affected derivation from
@@ -267,6 +275,21 @@ Usually means:
 - nginx body size limit
 - timeout/reverse proxy issue
 - bad token permissions
+
+On `hectic-lab`, the upload API has separate nginx locations for
+`/_api/v1/upload-path` and `/next/_api/v1/upload-path`. Requests stream to Attic
+without whole-body buffering, using HTTP/1.1 upstream and 600-second
+`proxy_send_timeout` and `proxy_read_timeout` values. These are inactivity
+timeouts, not an upload throughput guarantee. The CI wrapper still enforces its
+own whole-batch deadline. The legacy `/previous/` endpoint stays read-only.
+
+The host's Attic package also restricts its AWS SDK rustls connector to HTTP/1.1
+after observed S3 `REFUSED_STREAM` failures. This is a reproducible, host-scoped
+derived Cargo vendor tree; the pinned input tree and Cargo.lock are unchanged.
+TLS certificate verification remains enabled, and client-to-nginx HTTP/2 is not
+disabled. The pinned crate path makes upstream changes fail visibly during a
+future upgrade. This mitigates the observed transport error, not every possible
+Hetzner S3 timeout.
 
 ### Cache pulls do not work
 
