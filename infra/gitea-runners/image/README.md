@@ -24,43 +24,30 @@ Preferred registry:
 gitea.hectic-lab.com/hectic-lab/gitea-runner-nix-image
 ```
 
-Publish the archive without adding secrets to the image layers, then use the
-registry-reported digest as the only final `nix` label image reference:
+Publish the archive without adding secrets to the image layers. Controller-owned
+zero-idle runners select this image through `nixImageId` / `GCR_NIX_IMAGE_ID`;
+they do not use a Gitea label-to-container-image mapping:
 
 ```text
-nix:docker://gitea.hectic-lab.com/hectic-lab/gitea-runner-nix-image@sha256:<registry-digest>
+nixImageId = "<Hetzner-image-id>";
 ```
 
-The `2026-06-07` tag may be pushed as a human-readable companion tag, but the
-runner label mapping must use the `@sha256:` reference above. Keep
-`ubuntu-latest` on the `gitea/runner` default image unless a later runner
-configuration task explicitly changes it. Only the `nix` label should select
-this custom image.
+The `2026-06-07` tag may be pushed as a human-readable companion tag. The
+legacy Kubernetes rollback pool is currently disabled and has no labels.
+If it is restored, its Nix-capable image must be configured separately and
+digest-pinned before enabling a `nix` label.
 
-If the Gitea container registry is unavailable, select a private registry that
-is reachable from the runner Kubernetes cluster and requires authentication that
-can be provided through Kubernetes image-pull secrets. Record the selected
-registry and replace the host in the same digest-pinned form:
-
-```text
-nix:docker://<private-registry>/<namespace>/gitea-runner-nix-image@sha256:<registry-digest>
-```
-
-Do not fall back to `latest` or a tag-only mapping.
+Do not use a tag-only image for a restored Kubernetes rollback pool.
 
 ## Task 7 publication status
 
 Local build evidence is recorded in
-`.sisyphus/evidence/task-7-image-digest.txt`. In this environment, Docker could
-load and tag the image, but pushing to the preferred registry failed with
-`unauthorized: reqPackageAccess`, so no registry digest was available to pin as a
-concrete final mapping. Kubernetes pull smoke is recorded in
+`.sisyphus/evidence/task-7-image-digest.txt`. Kubernetes pull smoke is recorded in
 `.sisyphus/evidence/task-7-image-pull.txt` and is blocked here because `kubectl`
 is not installed or not on `PATH`.
 
-Once registry credentials are available, rerun the push, capture the
-registry-reported digest, and replace `<registry-digest>` in the mapping above
-before Task 6/9 consumes the label configuration.
+After importing the archive as a Hetzner image, record its image ID in the
+controller host configuration before dispatching Nix jobs.
 
 ## Image contents
 

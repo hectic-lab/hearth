@@ -8,7 +8,17 @@ set -eu
 
 gcr_state_init
 export GCR_ALLOWED_REPOS='hectic-lab/util.nix'
+export GCR_IMAGE_ID='313131'
 export GCR_NIX_IMAGE_ID='424242'
+
+test "$(gcr_label_ttl ubuntu-latest)" = '180'
+test "$(gcr_label_ttl nix)" = '480'
+test "$(gcr_decide ubuntu-latest hectic-lab/util.nix)" = 'cx53 180 0.032'
+test "$(gcr_decide nix hectic-lab/util.nix)" = 'cx53 480 0.032'
+test "$(gcr_label_candidates ubuntu-latest | head -n1)" = 'cx53 nbg1 amd64'
+test "$(gcr_label_candidates nix | head -n1)" = 'cx53 nbg1 amd64'
+test "$(gcr_image_id_for_arch amd64 ubuntu-latest)" = '313131'
+test "$(gcr_image_id_for_arch amd64 nix)" = '424242'
 
 profile="$(gcr_decide gross-nix-x86-highmem hectic-lab/util.nix)"
 test "$profile" = 'ccx53 480 0.8550'

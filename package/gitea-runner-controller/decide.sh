@@ -23,11 +23,12 @@ gcr_server_hourly_rate() {
 
 gcr_label_ttl() {
     case "$1" in
-        gross-x86)       printf '180' ;;
+        ubuntu-latest|gross-x86) printf '180' ;;
         gross-arm)       printf '180' ;;
         gross-x86-perf)  printf '180' ;;
         gross-mixed-econ) printf '180' ;;
-        gross-nix-x86) printf '180' ;;
+        nix)              printf '480' ;;
+        gross-nix-x86)    printf '180' ;;
         gross-nix-arm) printf '180' ;;
         gross-nix-x86-perf) printf '480' ;;
         gross-nix-x86-highmem) printf '480' ;;
@@ -40,7 +41,7 @@ gcr_label_ttl() {
 gcr_label_candidates() {
     label="$1"
     case "$label" in
-        gross-x86)
+        ubuntu-latest|gross-x86)
             printf '%s\n' \
                 'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64' \
                 'cx43 nbg1 amd64' 'cx43 fsn1 amd64' 'cx43 hel1 amd64' \
@@ -64,7 +65,7 @@ gcr_label_candidates() {
                 'cax41 nbg1 arm64' 'cax41 fsn1 arm64' 'cax41 hel1 arm64' \
                 'cx43 nbg1 amd64' 'cx43 fsn1 amd64' 'cx43 hel1 amd64'
             ;;
-        gross-nix-x86)
+        nix|gross-nix-x86)
             printf '%s\n' \
                 'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64' \
                 'cx43 nbg1 amd64' 'cx43 fsn1 amd64' 'cx43 hel1 amd64' \

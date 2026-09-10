@@ -19,10 +19,8 @@ data:
       insecure: false
       fetch_timeout: 5s
       fetch_interval: 2s
-      labels:
-        - ubuntu-latest
-        # The nix label is intentionally disabled until the runner image has a
-        # concrete registry-reported digest; see ../runbook.md before deploy.
+      # Persistent pool is disabled; controller owns all runner labels.
+      labels: []
 
     cache:
       enabled: true

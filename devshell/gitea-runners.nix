@@ -224,18 +224,15 @@ Environment expected before real deploy/apply:
   S3 backend credentials and endpoint access
   a matching SOPS age identity for sus/gitea-runners.yaml
   kubectl access to the target cluster
-  a concrete registry digest for the pushed Nix-capable runner image if enabling
-  the nix label
+  a valid Hetzner Nix image ID in the controller host configuration
 
 OpenTofu validation gate:
   tofu version
   tofu -chdir=infra/gitea-runners/opentofu validate
 
-Nix image build/publish/digest gate:
+Nix image build/publish gate:
   nix build .#gitea-runner-nix-image
-  publish the archive, then pin the registry-reported digest in the runner label
-  mapping
-  nix:docker://gitea.hectic-lab.com/hectic-lab/gitea-runner-nix-image@sha256:<registry-digest>
+  publish/import image, then set nixImageId / GCR_NIX_IMAGE_ID to its Hetzner ID
 
 SOPS token Secret creation gate:
   kubectl apply -f infra/gitea-runners/k8s/namespace.yaml
@@ -272,7 +269,7 @@ Verification commands:
 Main blockers and gates:
   do not run tofu apply without all external inputs
   do not apply the k8s overlay until the gitea-runner-token Secret exists
-  do not enable the nix label until the image has been published with a concrete digest
+  do not dispatch nix jobs until nixImageId / GCR_NIX_IMAGE_ID is valid
   do not print, load, or require secrets on shell entry
 EOF
   '';

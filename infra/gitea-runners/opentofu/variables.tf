@@ -45,7 +45,7 @@ variable "control_plane_server_type" {
 }
 
 variable "worker_server_type" {
-  description = "Default worker server type for the budget trusted DinD runner pool. One cpx22 worker keeps the idle baseline cheap; scale out later if job pressure requires it."
+  description = "Default worker server type for the budget trusted DinD cluster. One cpx22 worker keeps the cluster baseline cheap; scale out later if rollback capacity requires it."
   type        = string
   default     = "cpx22"
 }

@@ -2,15 +2,13 @@
 
 ## Scope
 
-This directory is the repo-owned boundary for the first Gitea Actions runner
-pool. Task 1 only establishes the scaffold and immutable decision contract;
-downstream tasks will add OpenTofu backend/provider files, Kubernetes manifests,
-and a Nix-capable runner image under the existing subdirectories.
+This directory is the repo-owned boundary for the Gitea Actions runner pool.
+The controller is the active zero-idle path; Kubernetes manifests and the
+Nix-capable image are retained for manual rollback and maintenance.
 
 The target service is `https://gitea.hectic-lab.com` for the Gitea organization
-`hectic-lab`. The first pool is fixed-size and trusted-only. "Ephemeral" means
-workflow job containers are ephemeral, while each runner pod keeps its runner
-identity in per-pod `/data/.runner` storage backed by a StatefulSet PVC.
+`hectic-lab`. The pool is trusted-only. "Ephemeral" means each controller VM
+and workflow job is disposable; the Kubernetes StatefulSet is rollback-only.
 
 ## Immutable decisions
 
@@ -27,21 +25,21 @@ identity in per-pod `/data/.runner` storage backed by a StatefulSet PVC.
   `/data`, including `/data/.runner`.
 - Container builds run through privileged rootful DinD inside trusted runner
   pods; host Docker socket mounting is not an implementation path.
-- The active runner label is `ubuntu-latest`. The `nix` label is not live until
-  the Nix-capable image has been pushed and a concrete registry-reported digest
-  is added to the runner ConfigMap.
+- `ubuntu-latest` and `nix` are controller-managed zero-idle aliases for
+  `gross-x86` and `gross-nix-x86`; the Kubernetes pool has no active labels.
 - First scope is trusted internal workflows only, with no untrusted fork or PR
   workflow support.
-- First scope has no autoscaling, no KEDA, and no dynamic runner controller.
+- Zero-idle allocation is handled by the repo-owned controller; Kubernetes is
+  not an active autoscaling path.
 
 ## Lifecycle boundaries
 
-- `infra/gitea-runners/opentofu/`: downstream OpenTofu stack for the S3 backend
+- `infra/gitea-runners/opentofu/`: OpenTofu stack for the S3 backend
   contract, Hetzner provider configuration, and kube-hetzner module wiring.
-- `infra/gitea-runners/k8s/`: downstream namespace, ConfigMap, Secret mount,
+- `infra/gitea-runners/k8s/`: rollback-only namespace, ConfigMap, Secret mount,
   StatefulSet, PVC, DinD sidecar, cleanup, and operational manifest work.
-- `infra/gitea-runners/image/`: downstream notes or sources for the runner image
-  handoff; package or flake output changes are outside Task 1.
+- `infra/gitea-runners/image/`: notes and handoff for the optional Kubernetes
+  rollback image; active zero-idle Nix image is selected by Hetzner image ID.
 - `infra/gitea-runners/runbook.md`: this contract plus later operational
   commands, rollback notes, and acceptance evidence references.
 
@@ -52,8 +50,8 @@ identity in per-pod `/data/.runner` storage backed by a StatefulSet PVC.
   instructions, or GitHub Actions ARC assumptions.
 - Untrusted fork/PR workflows are out of first scope; privileged DinD is only
   acceptable for trusted internal jobs.
-- Autoscaling/KEDA is out of first scope; start with a fixed-size StatefulSet
-  runner pool.
+- The persistent StatefulSet is rollback-only and defaults to zero replicas;
+  normal jobs use controller-managed zero-idle VMs.
 - No actual secrets are committed: no kubeconfig, runner token, Hetzner token,
   S3 credentials, decrypted SOPS files, or SOPS age keys.
 - OpenTofu must not manage plaintext Kubernetes Secrets containing the Gitea
@@ -248,8 +246,7 @@ These commands are executable only when the external inputs are available:
 - S3 backend credentials and endpoint access
 - a matching SOPS age identity for `sus/gitea-runners.yaml`
 - `kubectl` access to the target cluster
-- a concrete digest for the pushed Nix-capable runner image, if enabling the
-  `nix` label
+- a valid `GCR_NIX_IMAGE_ID` for controller-managed Nix jobs
 
 If any input is missing, stop before `tofu apply`. Do not guess values or reuse
 stale kubeconfig files.
@@ -260,15 +257,12 @@ Before production Kubernetes apply or rollout, satisfy both manifest gates:
    Kustomize overlay intentionally does not include a placeholder Secret, but
    the StatefulSet still mounts `secretName: gitea-runner-token` as
    `/runner-secrets/token` for `GITEA_RUNNER_REGISTRATION_TOKEN_FILE`.
-2. Keep the active ConfigMap on `ubuntu-latest` only unless the Nix-capable
-   image has been pushed successfully. Enable the `nix` label only by adding a
-   digest-pinned `docker://` mapping with the exact registry-reported sha256
-   digest from that push.
+2. Keep the persistent-pool ConfigMap labels empty. Runner labels belong to the
+   controller; Nix image readiness is governed by `GCR_NIX_IMAGE_ID`.
 
 Use the same SOPS materialization pattern as token rotation before applying the
 Kubernetes overlay. Applying the namespace alone is allowed so the Secret has a
-target namespace; the full overlay remains gated on the Secret and digest
-decisions:
+target namespace; the full overlay remains gated on the Secret.
 
 ```sh
 kubectl apply -f infra/gitea-runners/k8s/namespace.yaml
@@ -283,8 +277,7 @@ kubectl -n gitea-runners create secret generic gitea-runner-token \
 ```
 
 Do not run `kubectl apply -k infra/gitea-runners/k8s` until the Secret command
-above succeeds. Do not claim or enable the `nix` runner label until the image
-publication step has produced the concrete digest.
+above succeeds. The persistent pool ConfigMap must retain empty labels.
 
 ```sh
 tofu -chdir=infra/gitea-runners/opentofu init
@@ -309,14 +302,14 @@ Expected status after deploy:
 - `kubectl config current-context` names the runner cluster context.
 - `kubectl get nodes -o wide` shows all expected Hetzner nodes Ready.
 - `kubectl get sc` shows the Hetzner CSI storage class used by runner PVCs.
-- `kubectl -n gitea-runners get statefulset gitea-runner` shows 5 desired and 5 ready replicas.
-- `kubectl -n gitea-runners get pvc` shows 5 Bound PVCs.
-- `kubectl -n gitea-runners logs statefulset/gitea-runner -c runner --tail=200` shows the runner daemon started and no token value.
+- `kubectl -n gitea-runners get statefulset gitea-runner` shows 0 desired and 0 ready replicas.
+- `kubectl -n gitea-runners get pvc` shows no active runner PVCs; retained PVCs are rollback-only.
+- The controller host reports healthy and owns runner registrations; no persistent runner claims `ubuntu-latest` or `nix`.
 
-## Scale 5 to 10 to 5
+## Legacy rollback pool scaling (manual only)
 
-Scaling is a temporary capacity exercise, not the steady-state setting. Scale up,
-wait for readiness, run the concurrent smoke jobs, then scale back down to 5.
+Persistent-pool scaling is not part of normal operation. Use only after restoring
+its labels and disabling the zero-idle controller as described in `Rollback`.
 
 ```sh
 kubectl -n gitea-runners scale statefulset/gitea-runner --replicas=10
@@ -324,9 +317,9 @@ kubectl -n gitea-runners rollout status statefulset/gitea-runner --timeout=10m
 kubectl -n gitea-runners get pods -l app.kubernetes.io/name=gitea-runner -o wide
 kubectl -n gitea-runners get pvc -l app.kubernetes.io/name=gitea-runner -o wide
 
-# Run the concurrent smoke workflows now.
+# Run only workflows supported by restored persistent labels.
 
-kubectl -n gitea-runners scale statefulset/gitea-runner --replicas=1
+kubectl -n gitea-runners scale statefulset/gitea-runner --replicas=5
 kubectl -n gitea-runners rollout status statefulset/gitea-runner --timeout=10m
 kubectl -n gitea-runners get pods -l app.kubernetes.io/name=gitea-runner -o wide
 kubectl -n gitea-runners get pvc -l app.kubernetes.io/name=gitea-runner -o wide
@@ -405,7 +398,7 @@ Do not run the delete command for a runner that still has an active
 `gitea-runner-*` pod or retained `data-gitea-runner-*` PVC unless that PVC is
 being intentionally reset for re-registration.
 
-## Application rollback
+## Legacy Kubernetes application rollback
 
 Rollback the app layer only. Do not use this section to destroy the cluster.
 
@@ -504,7 +497,7 @@ as complete.
 
 ## Ephemeral VM runner cutover
 
-This section governs replacing the fixed K8s runner pool with the
+This section governs replacing the legacy persistent K8s runner pool with the
 ephemeral-VM controller (`package/gitea-runner-controller`) on this host.
 The K8s pool above remains rollback-only until cutover is explicitly accepted.
 
@@ -571,8 +564,9 @@ The `deploy-neuro` workflow uses these nested limits:
 | Gitea `actions.ENDLESS_TASK_TIMEOUT` | 8 hours |
 | VM hard lifetime from allocation | 480 minutes plus 10-minute controller grace |
 
-Other runner labels keep their existing 180-minute limits. Deploy the controller
-and Gitea watchdog settings before dispatching the longer workflow. Already
+`ubuntu-latest` keeps a 180-minute limit; `nix` uses a 480-minute limit for
+long-running Nix deployments. Deploy the controller and Gitea watchdog settings
+before dispatching the longer workflow. Already
 allocated VMs retain the TTL and runner configuration assigned when they were
 created; updating the controller does not extend a running job.
 
@@ -628,23 +622,27 @@ K8s rollback pool now defaults to deleted state:
 Re-enable sequence:
 
 ```sh
-# 1. stop ephemeral path
-sed -i 's/hectic.services.gitea-runner-controller = {.*}/\/* disabled *\//' \
-  nixos/system/hectic-lab/hectic-lab.nix   # or set enable = false
+# 1. edit nixos/system/hectic-lab/hectic-lab.nix and set
+#    services.gitea-runner-controller.enable = false, then rebuild:
 nixos-rebuild --target root@128.140.75.58 switch
 
 # 2. reprovision old kube-hetzner nodes when they were deleted:
 tofu -chdir=infra/gitea-runners/opentofu apply
 
-# 3. restore kubeconfig / cluster access, then re-enable K8s runner pool:
+# 3. while controller is disabled, destroy every surviving managed VM and
+#    verify no gcr-* runner registration remains online:
+hcloud server list -o json \
+  | jq -r '.[] | select(.labels["gitea-runner-controller"]=="managed") | .id' \
+  | xargs -r -n1 hcloud server delete
+
+# 4. restore kubeconfig / cluster access, restore `ubuntu-latest` in the
+#    ConfigMap labels, then re-enable K8s runner pool. The legacy image does not
+#    provide `nix`; do not dispatch Nix workflows until a Nix-capable K8s image
+#    and label mapping are restored:
+kubectl -n gitea-runners edit configmap/gitea-runner-config
 kubectl -n gitea-runners scale statefulset/gitea-runner --replicas=5
 kubectl -n gitea-runners rollout status statefulset/gitea-runner --timeout=10m
 ```
 
-Any surviving ephemeral VMs after step 1 must be destroyed manually once:
-
-```sh
-hcloud server list -o json \
-  | jq -r '.[] | select(.labels["gitea-runner-controller"]=="managed") | .id' \
-  | xargs -r -n1 hcloud server delete
-```
+Any managed VM or `gcr-*` registration found after step 3 must be removed before
+restoring persistent labels; otherwise both pools can claim the same job.
