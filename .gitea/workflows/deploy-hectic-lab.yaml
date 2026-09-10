@@ -1,0 +1,84 @@
+---
+# yamllint disable rule:line-length
+name: deploy hectic-lab
+
+on: # yamllint disable-line rule:truthy
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-hectic-lab
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy hectic-lab with Attic cache
+    if: ${{ gitea.ref == 'refs/heads/master' }}
+    runs-on: nix
+    timeout-minutes: 435
+    env:
+      NIX_CONFIG: |
+        fallback = true
+        extra-substituters = https://cache.nixos.org https://cache.hectic-lab.com/hectic
+        trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= hectic:KMQsKow4SoA9K2vOJlOljmx7/Zpf91Yy+5qEtxDDCzA=
+    steps:
+      - name: Checkout dispatched revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          ref: ${{ gitea.sha }}
+          persist-credentials: false
+
+      - name: Show runner and cache configuration
+        run: |
+          set -eu
+          uname -a
+          nix --version
+          nix config show fallback
+          nix config show download-buffer-size
+          nix config show substituters
+
+      - name: Configure SSH for hectic-lab
+        env:
+          HECTIC_LAB_SSH_PRIVATE_KEY: ${{ secrets.HECTIC_LAB_SSH_PRIVATE_KEY }}
+          HECTIC_LAB_SSH_KNOWN_HOSTS: ${{ secrets.HECTIC_LAB_SSH_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          test -n "$HECTIC_LAB_SSH_PRIVATE_KEY"
+          test -n "$HECTIC_LAB_SSH_KNOWN_HOSTS"
+          ssh_home=$(mktemp -d)
+          trap 'rm -rf "$ssh_home"' EXIT
+          install -d -m 700 "$ssh_home/.ssh"
+          printf '%s\n' "$HECTIC_LAB_SSH_PRIVATE_KEY" > "$ssh_home/.ssh/id_ed25519"
+          printf '%s\n' "$HECTIC_LAB_SSH_KNOWN_HOSTS" > "$ssh_home/.ssh/known_hosts"
+          chmod 600 "$ssh_home/.ssh/id_ed25519" "$ssh_home/.ssh/known_hosts"
+          printf '%s\n' \
+            'Host hectic-lab' \
+            '  HostName hectic-lab' \
+            '  User root' \
+            "  IdentityFile $ssh_home/.ssh/id_ed25519" \
+            '  IdentitiesOnly yes' \
+            '  StrictHostKeyChecking yes' \
+            "  UserKnownHostsFile $ssh_home/.ssh/known_hosts" \
+            > "$ssh_home/.ssh/config"
+          chmod 600 "$ssh_home/.ssh/config"
+          printf '%s\n' "$ssh_home" > "$RUNNER_TEMP/hectic-lab-ssh-home"
+
+      - name: Deploy hectic-lab and save cache
+        env:
+          ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
+          WITH_ATTIC_BUILD_TIMEOUT: "21600"
+          WITH_ATTIC_DRAIN_TIMEOUT: "3600"
+          WITH_ATTIC_UPLOAD_TIMEOUT: "600"
+          WITH_ATTIC_UPLOAD_RETRIES: "3"
+          WITH_ATTIC_BATCH_SIZE: "2"
+        run: |
+          set -eu
+          test -n "$ATTIC_TOKEN"
+          ssh_home=$(cat "$RUNNER_TEMP/hectic-lab-ssh-home")
+          trap 'rm -rf "$ssh_home"' EXIT
+          export HOME="$ssh_home"
+          export HECTIC_DEPLOY_SSH_CONFIG="$HOME/.ssh/config"
+          export NIX_SSHOPTS="-F $HOME/.ssh/config -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o IdentitiesOnly=yes -i $HOME/.ssh/id_ed25519"
+          ssh -F "$HOME/.ssh/config" -o BatchMode=yes hectic-lab true
+          nix run --refresh '.#with-attic-cache' -- -- \
+            nix run --refresh '.#deploy' -- \
+              push -- --flake '.#hectic-lab|x86_64-linux' --target-host hectic-lab --use-remote-sudo
