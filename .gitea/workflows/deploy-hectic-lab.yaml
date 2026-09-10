@@ -54,7 +54,7 @@ jobs:
           chmod 600 "$ssh_home/.ssh/id_ed25519" "$ssh_home/.ssh/known_hosts"
           printf '%s\n' \
             'Host hectic-lab' \
-            '  HostName hectic-lab' \
+            '  HostName 128.140.75.58' \
             '  User root' \
             "  IdentityFile $ssh_home/.ssh/id_ed25519" \
             '  IdentitiesOnly yes' \

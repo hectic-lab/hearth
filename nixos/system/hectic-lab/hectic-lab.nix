@@ -201,6 +201,8 @@ in {
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE/EhBI6sJb2yHbTkqhZiCzUrsLE6t+CZe7RhS22z7w5 nrv@adamantia"
     # github workflow
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKPEUArBxu7NUULT7Pi8ArtVxY1uVbIBSaeRKtqz1sz1"
+    # gitea workflow
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAogEr5boewtUrOeOqI96y/7FWR03vdbGW93Nj01tiIS gitea-actions-hectic-lab-deploy"
   ];
 
   users.users.ds4d = { # NOTE(nrv): artishoque
