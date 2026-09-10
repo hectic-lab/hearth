@@ -1,0 +1,39 @@
+---
+# yamllint disable rule:line-length
+name: check Nix download buffer
+
+on: # yamllint disable-line rule:truthy
+  workflow_dispatch:
+
+concurrency:
+  group: check-nix-download-buffer
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check Nix download buffer
+    runs-on: gross-nix-x86-perf
+    timeout-minutes: 20
+    env:
+      NIX_CONFIG: |
+        fallback = false
+        extra-substituters = https://cache.nixos.org https://cache.hectic-lab.com/hectic
+        trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= hectic:KMQsKow4SoA9K2vOJlOljmx7/Zpf91Yy+5qEtxDDCzA=
+    steps:
+      - name: Inspect Nix client
+        run: |
+          set -eu
+          nix --version
+          nix config show download-buffer-size
+          nix config show fallback
+          nix config show substituters
+
+      - name: Ping Attic cache
+        run: |
+          set -eu
+          nix store ping --store https://cache.hectic-lab.com/hectic
+
+      - name: Download small cache path
+        run: |
+          set -eu
+          nix build --no-link --print-out-paths nixpkgs#hello

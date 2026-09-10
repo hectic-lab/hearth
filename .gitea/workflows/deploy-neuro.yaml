@@ -10,39 +10,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  nix-download-buffer-check:
-    name: check Nix download buffer
-    if: ${{ gitea.ref == 'refs/heads/master' }}
-    runs-on: gross-nix-x86-perf
-    timeout-minutes: 20
-    env:
-      NIX_CONFIG: |
-        fallback = false
-        extra-substituters = https://cache.nixos.org https://cache.hectic-lab.com/hectic
-        trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= hectic:KMQsKow4SoA9K2vOJlOljmx7/Zpf91Yy+5qEtxDDCzA=
-    steps:
-      - name: Inspect Nix client
-        run: |
-          set -eu
-          nix --version
-          nix config show download-buffer-size
-          nix config show fallback
-          nix config show substituters
-
-      - name: Ping Attic cache
-        run: |
-          set -eu
-          nix store ping --store https://cache.hectic-lab.com/hectic
-
-      - name: Download small cache path
-        run: |
-          set -eu
-          nix build --no-link --print-out-paths nixpkgs#hello
-
   deploy:
     name: deploy neuro from performance node
     if: ${{ gitea.ref == 'refs/heads/master' }}
-    needs: nix-download-buffer-check
     runs-on: gross-nix-x86-perf
     timeout-minutes: 435
     env:
