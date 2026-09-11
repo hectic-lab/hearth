@@ -10,6 +10,7 @@ set -eu
 
 gcr_state_init
 calls="$GCR_STATE_DIR/calls"
+gcr_now_epoch() { printf '1800'; }
 
 gcr_gitea_job_state() {
   case "$2" in
@@ -31,14 +32,19 @@ gcr_vm_destroy() {
   printf 'destroy vm=%s\n' "$1" >> "$calls"
 }
 
-record_success='{"job_id":"101","run_attempt":"1","repo":"hinterland/hearth","label":"gross-nix-x86-perf","created_at":"1","ttl_min":480,"vm_id":41,"vm_name":"gcr-101-1","bootstrapped":true,"status":"vm_active"}'
+gcr_vm_runner_service() {
+  printf 'runner %s vm=%s\n' "$2" "$1" >> "$calls"
+}
+
+gcr_gitea_runner_disabled() { :; }
+
+record_success='{"job_id":"101","run_attempt":"1","repo":"hinterland/hearth","label":"gross-nix-x86-perf","created_at":"0","ttl_min":480,"vm_id":41,"vm_name":"gcr-101-1","bootstrapped":true,"status":"vm_active"}'
 record_failure='{"job_id":"102","run_attempt":"1","repo":"hinterland/hearth","label":"gross-nix-x86-perf","created_at":"1","ttl_min":480,"vm_id":42,"vm_name":"gcr-102-1","bootstrapped":true,"status":"vm_active"}'
 
 gcr_record_put 101 1 "$record_success"
 gcr_record_put 102 1 "$record_failure"
 gcr_reap_finished_jobs
 
-grep -q 'destroy vm=41' "$calls"
 grep -q 'destroy vm=42' "$calls"
 grep -q 'diag vm=42 ip=192.0.2.42 job=102 reason=completed:failure' "$calls"
 if grep -q 'diag vm=41' "$calls"; then
@@ -46,7 +52,15 @@ if grep -q 'diag vm=41' "$calls"; then
   exit 1
 fi
 
-test ! -e "$(gcr_record_path 101 1)"
+if grep -q 'destroy vm=41' "$calls"; then
+  printf 'successful job VM should remain idle until billing boundary\n' >&2
+  exit 1
+fi
+jq -e 'select(.status == "idle_vm" and .idle_expires_at == 3600)' \
+  "$(gcr_record_path 101 1)" >/dev/null
+idle_once="$(gcr_record_get 101 1)"
+gcr_reap_finished_jobs
+test "$(gcr_record_get 101 1)" = "$idle_once"
 test ! -e "$(gcr_record_path 102 1)"
 
 calls_ip_fail="$GCR_STATE_DIR/calls-ip-fail"

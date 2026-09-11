@@ -92,12 +92,12 @@ in
       concurrencyCap = lib.mkOption {
         type = lib.types.int;
         default = 2;
-        description = "Maximum simultaneously running ephemeral VMs (global).";
+        description = "Maximum simultaneously assigned runner VMs (global); retained idle VMs do not count.";
       };
       perRepoCap = lib.mkOption {
         type = lib.types.int;
         default = 1;
-        description = "Maximum concurrent ephemeral VMs per repo.";
+        description = "Maximum concurrently assigned runner VMs per repo; retained idle VMs do not count.";
       };
       reconcileIntervalSec = lib.mkOption {
         type = lib.types.int;

@@ -92,8 +92,8 @@ labels:
       $GCR_DEBUG_SSH_PUBKEY"
     fi
 
-    # NOTE(yukkop): token reaches only this VM's Hetzner metadata service;
-    # ephemeral registration makes it useless after the single job exits.
+    # NOTE(yukkop): token reaches only this VM's Hetzner metadata service and
+    # is used for initial registration, not for later idle-slot assignments.
     printf '%s' "#cloud-config
 write_files:
 $ssh_key_block
@@ -111,7 +111,7 @@ $(printf '%s\n' "$runner_config" | sed 's/^/      /')
   - path: /etc/systemd/system/gitea-runner.service
     content: |
       [Unit]
-      Description=Gitea ephemeral Actions runner
+       Description=Gitea on-demand Actions runner
       After=network-online.target gcr-bootstrap.service
       Requires=gcr-bootstrap.service
 
@@ -119,7 +119,7 @@ $(printf '%s\n' "$runner_config" | sed 's/^/      /')
       Type=simple
       Environment=GITEA_INSTANCE_URL=$GCR_GITEA_URL
       Environment=GITEA_RUNNER_REGISTRATION_TOKEN=$reg_token
-      ExecStart=/usr/local/bin/act_runner daemon --ephemeral --config /etc/gitea-runner/config.yaml
+       ExecStart=/usr/local/bin/act_runner daemon --config /etc/gitea-runner/config.yaml
       Restart=on-failure
       RestartSec=5
 
@@ -232,6 +232,27 @@ gcr_vm_public_ip() {
     fi
 }
 
+# Stop idle runners so Gitea cannot schedule work before atomic reuse claim.
+# The controller starts the service only after the claim record is written.
+gcr_vm_runner_service() {
+    vm_id="$1"; action="$2"
+    case "$action" in start|stop) ;; *) return 1 ;; esac
+    ip="$(gcr_vm_public_ip "$vm_id")" || return 1
+    [ -n "$ip" ] || return 1
+    test -n "${GCR_SSH_PRIVKEY_FILE:-}" && test -r "$GCR_SSH_PRIVKEY_FILE" || return 1
+    key_tmp="$(mktemp "${TMPDIR:-/tmp}/gcr-runner-sshkey.XXXXXX")"
+    cat "$GCR_SSH_PRIVKEY_FILE" > "$key_tmp"
+    printf '\n' >> "$key_tmp"
+    chmod 0600 "$key_tmp"
+    ssh_opts="-i $key_tmp -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes"
+    if timeout 30 ssh $ssh_opts "root@$ip" "systemctl $action gitea-runner.service"; then
+        rm -f "$key_tmp"
+        return 0
+    fi
+    rm -f "$key_tmp"
+    return 1
+}
+
 gcr_vm_collect_diagnostics() {
     vm_id="$1"; ip="$2"; job_id="$3"; reason="$4"
 
@@ -321,7 +342,7 @@ STARTEOF
 chmod 0700 /usr/local/sbin/gcr-runner-start
 cat > /etc/systemd/system/gitea-runner.service <<UNITEOF
 [Unit]
-Description=Gitea ephemeral Actions runner
+Description=Gitea on-demand Actions runner
 After=network-online.target
 
 [Service]

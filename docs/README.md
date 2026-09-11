@@ -4,10 +4,10 @@
 
 ## Gitea runner labels
 
-Common labels for controller-managed zero-idle runners:
+Common labels for controller-managed on-demand runners:
 
-- `ubuntu-latest` — zero-idle alias for `gross-x86`
-- `nix` — zero-idle Nix alias with 480-minute TTL
+- `ubuntu-latest` — on-demand alias for `gross-x86`
+- `nix` — on-demand Nix alias with 480-minute TTL
 - `gross-x86` — x86 fallback chain `cx53` / `cx43` / `cx33`
 - `gross-arm` — ARM fallback chain `cax41` / `cax31` / `cax21`
 - `gross-x86-perf` — x86 performance chain `cx53` / `cpx62` / `cpx52`
@@ -21,7 +21,10 @@ Common labels for controller-managed zero-idle runners:
 Region order for fallback: `nbg1`, then `fsn1`, then `hel1`.
 
 The legacy Kubernetes persistent pool is disabled (`replicas: 0`) and has no
-registered labels. All listed labels are handled by the zero-idle controller.
+registered labels. All listed labels are handled by the VM controller. After a
+successful job, a bootstrapped VM remains running and idle until its next hourly
+lifetime boundary, capped by label TTL. A queued job from same repository with
+same label reuses it without another VM creation or budget reservation.
 
 Operational details: `infra/gitea-runners/runbook.md` and
 `package/gitea-runner-controller/decide.sh`.

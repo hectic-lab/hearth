@@ -40,7 +40,7 @@ if printf '%s\n' "$candidates" | grep -Evq '^ccx53 (nbg1|fsn1|hel1) amd64$'; the
 fi
 
 export GCR_BUDGET_EUR_MONTHLY='6.83'
-if gcr_budget_add 0.8550 480; then
+if gcr_budget_can_add 0.8550 480; then
   printf 'highmem full-TTL reservation must obey budget cap\n' >&2
   exit 1
 fi

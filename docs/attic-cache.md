@@ -201,9 +201,9 @@ build/deploy command, batches of at most 8 paths, and 600 seconds per upload att
 upload deadline covers the **whole batch**, not each individual path. Its final
 drain is bounded at 1 hour; the 435-minute job budget leaves 15 minutes for setup
 and cleanup. The `gross-nix-x86-perf` runner limit and Gitea's endless-task
-watchdog are 8 hours. The VM lifetime starts at allocation and includes the
-controller's additional 10-minute grace. A prolonged cache outage can still
-exhaust the drain before every queued path is uploaded.
+watchdog are 8 hours. VM hard lifetime starts at allocation and has no controller
+destruction grace. A prolonged cache outage can still exhaust the drain before
+every queued path is uploaded.
 
 The build timeout covers the entire wrapped command, not each derivation.
 Completed outputs can be reused from the cache, but an interrupted CUDA/Magma

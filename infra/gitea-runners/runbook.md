@@ -3,7 +3,7 @@
 ## Scope
 
 This directory is the repo-owned boundary for the Gitea Actions runner pool.
-The controller is the active zero-idle path; Kubernetes manifests and the
+The controller is the active on-demand path; Kubernetes manifests and the
 Nix-capable image are retained for manual rollback and maintenance.
 
 The target service is `https://gitea.hectic-lab.com` for the Gitea organization
@@ -25,11 +25,11 @@ and workflow job is disposable; the Kubernetes StatefulSet is rollback-only.
   `/data`, including `/data/.runner`.
 - Container builds run through privileged rootful DinD inside trusted runner
   pods; host Docker socket mounting is not an implementation path.
-- `ubuntu-latest` and `nix` are controller-managed zero-idle aliases for
+- `ubuntu-latest` and `nix` are controller-managed on-demand aliases for
   `gross-x86` and `gross-nix-x86`; the Kubernetes pool has no active labels.
 - First scope is trusted internal workflows only, with no untrusted fork or PR
   workflow support.
-- Zero-idle allocation is handled by the repo-owned controller; Kubernetes is
+- On-demand allocation is handled by the repo-owned controller; Kubernetes is
   not an active autoscaling path.
 
 ## Lifecycle boundaries
@@ -39,7 +39,7 @@ and workflow job is disposable; the Kubernetes StatefulSet is rollback-only.
 - `infra/gitea-runners/k8s/`: rollback-only namespace, ConfigMap, Secret mount,
   StatefulSet, PVC, DinD sidecar, cleanup, and operational manifest work.
 - `infra/gitea-runners/image/`: notes and handoff for the optional Kubernetes
-  rollback image; active zero-idle Nix image is selected by Hetzner image ID.
+  rollback image; active on-demand Nix image is selected by Hetzner image ID.
 - `infra/gitea-runners/runbook.md`: this contract plus later operational
   commands, rollback notes, and acceptance evidence references.
 
@@ -51,7 +51,7 @@ and workflow job is disposable; the Kubernetes StatefulSet is rollback-only.
 - Untrusted fork/PR workflows are out of first scope; privileged DinD is only
   acceptable for trusted internal jobs.
 - The persistent StatefulSet is rollback-only and defaults to zero replicas;
-  normal jobs use controller-managed zero-idle VMs.
+  normal jobs use controller-managed on-demand VMs.
 - No actual secrets are committed: no kubeconfig, runner token, Hetzner token,
   S3 credentials, decrypted SOPS files, or SOPS age keys.
 - OpenTofu must not manage plaintext Kubernetes Secrets containing the Gitea
@@ -562,7 +562,7 @@ The `deploy-neuro` workflow uses these nested limits:
 | `gross-nix-x86-perf` runner | 480 minutes |
 | `gross-nix-x86-highmem` runner | 480 minutes |
 | Gitea `actions.ENDLESS_TASK_TIMEOUT` | 8 hours |
-| VM hard lifetime from allocation | 480 minutes plus 10-minute controller grace |
+| VM hard lifetime from allocation | 480 minutes; no destruction grace |
 
 `ubuntu-latest` keeps a 180-minute limit; `nix` uses a 480-minute limit for
 long-running Nix deployments. Deploy the controller and Gitea watchdog settings
@@ -576,10 +576,27 @@ only, never to a lower-RAM server type. Current Hetzner public pricing for
 Germany/Finland CCX53 is 0.8550 EUR/hour excluding IPv4, so one 480-minute
 allocation reserves 6.84 EUR against the controller budget before VM creation.
 
-These are maximum lifetimes: terminal jobs still trigger immediate VM teardown.
-The controller's budget reservation uses the full label TTL, so a long-running
-label reserves more of the existing monthly budget. Do not raise that budget or
-disable timeout safeguards just to bypass a refused allocation.
+These are maximum lifetimes. Failed, cancelled, skipped, and unbootstrapped jobs
+still trigger immediate VM teardown; failed jobs retain pre-destroy diagnostics.
+After a successful job, its bootstrapped VM stays running until next hourly
+boundary measured from original VM creation, capped by profile TTL. Same-repo,
+same-label queued work can atomically claim that idle VM. Reuse preserves
+original Hetzner labels and runner name, creates no server, fetches no new
+registration token, and makes no second budget reservation. Idle VMs are still
+billed: controller deletes them at slot expiry and never relies on stopping a
+server to avoid charges.
+
+Reuse retains runner host filesystem and registration identity. It is therefore
+restricted to same repository and exact label inside this trusted-only pool;
+allowed repositories must not run untrusted fork or pull-request code. A failed
+or otherwise non-successful job is never reused.
+
+Active and idle VMs are deleted at profile hard TTL without grace. Idle reuse is
+allowed only when at least one configured reconcile interval remains before both
+slot expiry and hard TTL. Controller budget reservation still uses full label TTL
+on initial creation, so a long-running label reserves more of existing monthly
+budget. Do not raise that budget or disable timeout safeguards just to bypass a
+refused allocation.
 
 After changing any timeout, verify the complete chain rather than only
 `timeout-minutes`; a shorter wrapper, runner, server watchdog, or VM TTL wins.
@@ -592,7 +609,9 @@ journalctl -u gitea-runner-webhook -n 20 --no-pager
 hcloud server list -o json | jq '[.[] | select(.labels["gitea-runner-controller"]=="managed")] | length' # expect 0
 ```
 
-Zero managed VMs at idle is the steady-state assertion.
+Zero managed VMs is expected after retained billing slots expire. Immediately
+after successful work, one managed VM per retained profile may remain until its
+recorded hourly boundary.
 
 ### End-to-end acceptance (Task 9)
 
@@ -602,10 +621,10 @@ Trigger `.gitea/workflows/runner-nix-smoke.yaml` via workflow_dispatch, then:
 watch_labels() { hcloud server list -o json | jq '[.[] | select(.labels["gitea-runner-controller"]=="managed") | {id,name,labels}]'; }
 watch_labels                                   # exactly one VM while queued/running
 journalctl -f -u gitea-runner-controller       # vm-created / vm-destroyed events
-watch_labels                                   # expect [] after completion
+watch_labels                                   # VM may remain until next hourly boundary
 curl -fsS -H "Authorization: token $ADMIN" \
   https://gitea.hectic-lab.com/api/v1/orgs/hectic-lab/actions/runners \
-  | jq '[.entries[] | select(.name | startswith("gcr-"))] | length'  # expect 0
+  | jq '[.entries[] | select(.name | startswith("gcr-"))] | length'  # may remain during retained slot
 ```
 
 Failure paths to verify identically: duplicate delivery (send same webhook twice

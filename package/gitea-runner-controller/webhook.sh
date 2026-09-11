@@ -94,6 +94,12 @@ gcr_alloc() {
         RESPONSE_CODE=204
         return 0
     fi
+    existing="$(gcr_record_get "$job_id" "$attempt")"
+    if [ -n "$existing" ]; then
+        gcr_lock_release "$key"
+        RESPONSE_CODE=204
+        return 0
+    fi
 
     if [ "$label_count" -ne 1 ]; then
         gcr_lock_release "$key"
@@ -112,24 +118,74 @@ gcr_alloc() {
     set -- $profile
     server_type="$1"; ttl_min="$2"; rate="$3"
 
+    if ! gcr_lock_acquire admission; then
+        rec="$(jq -n --arg j "$job_id" --arg a "$attempt" --arg r "$repo" \
+            --arg l "$label" --arg t "$(gcr_now_epoch)" \
+            '{job_id:$j, run_attempt:$a, repo:$r, label:$l,
+              created_at:$t, ttl_min:null, vm_id:"", vm_name:"",
+              status:"deferred"}')"
+        gcr_record_put "$job_id" "$attempt" "$rec"
+        gcr_lock_release "$key"
+        gcr_event "deferred" "$job_id" "{\"reason\":\"admission-busy\"}"
+        RESPONSE_CODE=202; RESPONSE_BODY="deferred: admission busy"
+        return 0
+    fi
+
     active="$(gcr_count_active)"
     repo_active="$(gcr_count_active_repo "$repo")"
     if [ "$active" -ge "${GCR_CONCURRENCY_CAP:-2}" ] \
         || [ "$repo_active" -ge "${GCR_PER_REPO_CAP:-1}" ]; then
         rec="$(jq -n --arg j "$job_id" --arg a "$attempt" --arg r "$repo" \
-            --arg l "$label" --arg t "$(date -u '+%s')" \
+            --arg l "$label" --arg t "$(gcr_now_epoch)" \
             '{job_id:$j, run_attempt:$a, repo:$r, label:$l,
               created_at:$t, ttl_min:null, vm_id:"", vm_name:"",
               status:"deferred"}')"
         gcr_record_put "$job_id" "$attempt" "$rec"
+        gcr_lock_release admission
         gcr_lock_release "$key"
         gcr_event "deferred" "$job_id" "{\"active\":$active,\"repo_active\":$repo_active}"
         RESPONSE_CODE=202; RESPONSE_BODY="deferred: capacity"
         return 0
     fi
 
-    if ! gcr_budget_add "$rate" "$ttl_min"; then
+    claim_status=0
+    gcr_claim_idle "$job_id" "$attempt" "$repo" "$label" || claim_status="$?"
+    if [ "$claim_status" -eq 0 ]; then
+        reused="$(gcr_record_get "$job_id" "$attempt")"
+        vm_id="$(gcr_record_field "$reused" vm_id)"
+        vm_name="$(gcr_record_field "$reused" vm_name)"
+        if gcr_vm_runner_service "$vm_id" start \
+            && gcr_gitea_runner_disabled "$repo" "$vm_name" false; then
+            reused="$(gcr_record_get "$job_id" "$attempt")"
+            reused="$(printf '%s' "$reused" | jq -c '.bootstrapped = true | del(.reused_vm)')"
+            gcr_record_put "$job_id" "$attempt" "$reused"
+        else
+            gcr_gitea_runner_disabled "$repo" "$vm_name" true || true
+            gcr_event "vm-reuse-start-failed" "$job_id" "{\"vm_id\":$vm_id}"
+        fi
+        gcr_lock_release admission
+        gcr_lock_release "$key"
+        gcr_event "vm-reused" "$job_id" "{\"vm_id\":$vm_id,\"label\":\"$label\"}"
+        RESPONSE_CODE=202; RESPONSE_BODY="reused $vm_name"
+        return 0
+    fi
+    if [ "$claim_status" -eq 2 ]; then
+        rec="$(jq -n --arg j "$job_id" --arg a "$attempt" --arg r "$repo" \
+            --arg l "$label" --arg t "$(gcr_now_epoch)" \
+            '{job_id:$j, run_attempt:$a, repo:$r, label:$l,
+              created_at:$t, ttl_min:null, vm_id:"", vm_name:"",
+              status:"deferred"}')"
+        gcr_record_put "$job_id" "$attempt" "$rec"
+        gcr_lock_release admission
+        gcr_lock_release "$key"
+        gcr_event "deferred" "$job_id" "{\"reason\":\"idle-pool-busy\"}"
+        RESPONSE_CODE=202; RESPONSE_BODY="deferred: idle pool busy"
+        return 0
+    fi
+
+    if ! gcr_budget_can_add "$rate" "$ttl_min"; then
         gcr_record_del "$job_id" "$attempt"
+        gcr_lock_release admission
         gcr_lock_release "$key"
         gcr_event "budget-refused" "$job_id" "{\"rate\":$rate,\"ttl_min\":$ttl_min}"
         RESPONSE_CODE=202; RESPONSE_BODY="refused: monthly budget exhausted"
@@ -138,6 +194,7 @@ gcr_alloc() {
 
     reg_token="$(gcr_gitea_registration_token "$repo")" || {
         gcr_record_del "$job_id" "$attempt"
+        gcr_lock_release admission
         gcr_lock_release "$key"
         gcr_event "token-error" "$job_id" "{}"
         RESPONSE_CODE=202; RESPONSE_BODY="registration token unavailable"
@@ -145,22 +202,33 @@ gcr_alloc() {
     }
 
     vm_name="gcr-${job_id}-${attempt}"
+    created_at="$(gcr_now_epoch)"
     vm_id="$(gcr_vm_create "$vm_name" "$label" "$server_type" "$ttl_min" \
         "$reg_token" "$job_id" "$attempt" "$repo")" || {
         gcr_record_del "$job_id" "$attempt"
+        gcr_lock_release admission
         gcr_lock_release "$key"
         gcr_event "vm-create-failed" "$job_id" "{}"
         RESPONSE_CODE=202; RESPONSE_BODY="VM creation failed"
         return 0
     }
 
+    gcr_budget_add "$rate" "$ttl_min"
+
     rec="$(jq -n --arg j "$job_id" --arg a "$attempt" --arg r "$repo" \
-        --arg l "$label" --arg t "$(date -u '+%s')" --arg v "$vm_id" \
+        --arg l "$label" --arg t "$created_at" --arg v "$vm_id" \
         --arg vn "$vm_name" --arg ttl "$ttl_min" \
         '{job_id:$j, run_attempt:$a, repo:$r, label:$l,
           created_at:$t, ttl_min:($ttl|tonumber), vm_id:($v|tonumber),
           vm_name:$vn, bootstrapped:false, status:"pending_vm"}')"
-    gcr_record_put "$job_id" "$attempt" "$rec"
+    if ! gcr_record_put "$job_id" "$attempt" "$rec"; then
+        gcr_vm_destroy "$vm_id" || true
+        gcr_lock_release admission
+        gcr_lock_release "$key"
+        RESPONSE_CODE=202; RESPONSE_BODY="VM state write failed"
+        return 0
+    fi
+    gcr_lock_release admission
     gcr_lock_release "$key"
     gcr_event "vm-created" "$job_id" "{\"vm_id\":$vm_id,\"label\":\"$label\",\"ttl_min\":$ttl_min}"
 
@@ -170,10 +238,48 @@ gcr_alloc() {
 gcr_deallocate() {
     job_id="$1"; attempt="$2"; new_status="$3"
 
+    key="$(gcr_alloc_key "$job_id" "$attempt")"
+    gcr_lock_acquire "$key" || return 0
+
     rec="$(gcr_record_get "$job_id" "$attempt")"
-    [ -n "$rec" ] || return 0
+    if [ -z "$rec" ]; then
+        gcr_lock_release "$key"
+        return 0
+    fi
+
+    case "$(gcr_record_field "$rec" status)" in
+        pending_vm|vm_active) ;;
+        *)
+            gcr_lock_release "$key"
+            return 0
+            ;;
+    esac
 
     vm_id="$(gcr_record_field "$rec" vm_id)"
+    if [ "$new_status" = "completed:success" ] \
+        && idle_rec="$(gcr_record_idle_json "$rec")"; then
+        if ! gcr_lock_acquire idle-pool; then
+            gcr_lock_release "$key"
+            return 0
+        fi
+        runner_name="$(gcr_record_field "$rec" vm_name)"
+        if ! gcr_gitea_runner_disabled "$(gcr_record_field "$rec" repo)" "$runner_name" true \
+            || ! gcr_vm_runner_service "$vm_id" stop; then
+            gcr_lock_release idle-pool
+            gcr_vm_destroy "$vm_id" || true
+            gcr_record_del "$job_id" "$attempt"
+            gcr_lock_release "$key"
+            gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"idle-stop-failed\"}"
+            return 0
+        fi
+        gcr_record_put "$job_id" "$attempt" "$idle_rec"
+        idle_expires="$(gcr_record_field "$idle_rec" idle_expires_at)"
+        gcr_lock_release idle-pool
+        gcr_lock_release "$key"
+        gcr_event "vm-idle" "$job_id" "{\"vm_id\":$vm_id,\"expires_at\":$idle_expires}"
+        return 0
+    fi
+
     if [ -n "$vm_id" ] && [ "$vm_id" != "null" ] && [ "$vm_id" != "0" ]; then
         case "$new_status" in
             completed:success|completed:cancelled|completed:skipped) ;;
@@ -187,7 +293,21 @@ gcr_deallocate() {
     fi
 
     gcr_record_del "$job_id" "$attempt"
-    gcr_lock_release "$(gcr_alloc_key "$job_id" "$attempt")"
+    gcr_lock_release "$key"
+}
+
+gcr_mark_in_progress() {
+    job_id="$1"; attempt="$2"
+    key="$(gcr_alloc_key "$job_id" "$attempt")"
+    gcr_lock_acquire "$key" || return 0
+    rec="$(gcr_record_get "$job_id" "$attempt")"
+    case "$(gcr_record_field "$rec" status)" in
+        pending_vm|vm_active)
+            rec="$(printf '%s' "$rec" | jq -c '.status = "vm_active"')"
+            gcr_record_put "$job_id" "$attempt" "$rec"
+            ;;
+    esac
+    gcr_lock_release "$key"
 }
 
 gcr_handle_webhook() {
@@ -210,8 +330,11 @@ gcr_handle_webhook() {
     repo="$(printf '%s' "$gcr_body" | jq -r '.repository.full_name // ""')"
     labels_json="$(printf '%s' "$gcr_body" | jq -c '.workflow_job.labels // []')"
 
-    case "$action:$job_id" in
-        :*|"queued:"|*":0") gcr_respond 400 "malformed payload"; exit 0 ;;
+    [ -n "$action" ] || { gcr_respond 400 "malformed payload"; exit 0; }
+    case "$job_id:$attempt" in
+        *[!0-9:]*|:*|*::*|*:|0:*|*:0)
+            gcr_respond 400 "malformed payload"; exit 0
+            ;;
     esac
 
     case "$action" in
@@ -220,11 +343,7 @@ gcr_handle_webhook() {
             gcr_log info --ns=alloc "queued job=$job_id repo=$repo code=$RESPONSE_CODE $RESPONSE_BODY"
             ;;
         in_progress)
-            rec="$(gcr_record_get "$job_id" "$attempt")"
-            if [ -n "$rec" ]; then
-                rec="$(printf '%s' "$rec" | jq -c '.status = "vm_active"')"
-                gcr_record_put "$job_id" "$attempt" "$rec"
-            fi
+            gcr_mark_in_progress "$job_id" "$attempt"
             RESPONSE_CODE=204
             ;;
         completed)
