@@ -25,11 +25,10 @@
       rev = "6ff3b71e3705e0d4081a51c21ca0379e869ba5fb";
       hash = "sha256-wC/2rAsSDO83UITaFhtaf3do3aaOAko4gnKUOzwURc8=";
     };
-    cargo = self.lib.cargoToml src;
   in
     buildPgrxExtension pkgs {
-      pname = cargo.package.name;
-      version = cargo.package.version;
+      pname = "pg_smtp_client";
+      version = "0.2.0";
   
       inherit src postgresql;
   
