@@ -21,6 +21,10 @@
       plugin_daemon:
         ports: !override
           - "127.0.0.1:${toString cfg.pluginPort}:5003"
+        environment:
+          DB_USERNAME: ''${DB_USERNAME:-postgres}
+          DB_HOST: ''${DB_HOST:-db_postgres}
+          DB_PORT: ''${DB_PORT:-5432}
   '';
 in {
   options.hectic.services.dify = {
