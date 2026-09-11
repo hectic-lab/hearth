@@ -194,6 +194,7 @@ gcr_alloc_deferred() {
         reused="$(gcr_record_get "$job_id" "$attempt")"
         vm_id="$(gcr_record_field "$reused" vm_id)"
         if gcr_vm_runner_service "$vm_id" start \
+            && gcr_vm_runner_service "$vm_id" health \
             && gcr_gitea_runner_disabled "$repo" "$(gcr_record_field "$reused" vm_name)" false; then
             reused="$(gcr_record_get "$job_id" "$attempt")"
             reused="$(printf '%s' "$reused" | jq -c '.bootstrapped = true | del(.reused_vm)')"
@@ -410,6 +411,7 @@ gcr_bootstrap_pending() {
 
         if [ "$(gcr_record_field "$rec" reused_vm)" = "true" ]; then
             if gcr_vm_runner_service "$vm_id" start \
+                && gcr_vm_runner_service "$vm_id" health \
                 && gcr_gitea_runner_disabled "$repo" "$runner_name" false; then
                 rec="$(printf '%s' "$rec" | jq -c '.bootstrapped = true | del(.reused_vm)')"
                 gcr_record_put "$job_id" "$attempt" "$rec"
@@ -506,58 +508,14 @@ gcr_reap_finished_jobs() {
                     pending_vm|vm_active) ;;
                     *) gcr_lock_release "$key"; continue ;;
                 esac
-                vm_id="$(gcr_record_field "$rec" vm_id)"
-                if [ "$state" = "completed:success" ] \
-                    && idle_rec="$(gcr_record_idle_json "$rec")"; then
-                    if ! gcr_lock_acquire idle-pool; then
-                        gcr_lock_release "$key"
-                        continue
-                    fi
-                    runner_name="$(gcr_record_field "$rec" vm_name)"
-                    if ! gcr_gitea_runner_disabled "$repo" "$runner_name" true \
-                        || ! gcr_vm_runner_service "$vm_id" stop; then
-                        gcr_lock_release idle-pool
-                        if gcr_vm_cleanup_start "$job_id" "$attempt" "$rec" \
-                            idle-stop-failed false; then
-                            gcr_event "vm-destroyed" "$job_id" \
-                                "{\"vm_id\":$vm_id,\"reason\":\"idle-stop-failed\",\"via\":\"reconcile\"}"
-                        else
-                            gcr_event "vm-cleanup-pending" "$job_id" \
-                                "{\"vm_id\":$vm_id,\"reason\":\"idle-stop-failed\",\"via\":\"reconcile\"}"
-                        fi
-                        gcr_lock_release "$key"
-                        continue
-                    fi
-                    gcr_record_put "$job_id" "$attempt" "$idle_rec"
-                    idle_expires="$(gcr_record_field "$idle_rec" idle_expires_at)"
-                    gcr_lock_release idle-pool
-                    gcr_lock_release "$key"
-                    gcr_event "vm-idle" "$job_id" "{\"vm_id\":$vm_id,\"expires_at\":$idle_expires,\"via\":\"reconcile\"}"
-                    gcr_log info --ns=sweep "job=$job_id succeeded, retaining vm=$vm_id until $idle_expires"
-                    continue
-                fi
-
-                gcr_log info --ns=sweep "job=$job_id terminal ($state), destroying vm=$vm_id"
-                if [ -n "$vm_id" ] && [ "$vm_id" != "0" ] && [ "$vm_id" != "null" ]; then
-                    case "$state" in
-                        completed:success|completed:cancelled|completed:skipped) ;;
-                        *)
-                            ip="$(gcr_vm_public_ip "$vm_id" || true)"
-                            gcr_vm_collect_diagnostics "$vm_id" "$ip" "$job_id" "$state" || true
-                            ;;
-                    esac
-                    if gcr_vm_cleanup_start "$job_id" "$attempt" "$rec" \
-                        job-completed false; then
-                        gcr_event "vm-destroyed" "$job_id" \
-                            "{\"vm_id\":$vm_id,\"reason\":\"job-completed\",\"state\":\"$state\"}"
-                    else
-                        gcr_event "vm-cleanup-pending" "$job_id" \
-                            "{\"vm_id\":$vm_id,\"reason\":\"job-completed\",\"state\":\"$state\"}"
-                    fi
-                else
-                    gcr_record_del "$job_id" "$attempt"
-                fi
+                finish_status=0
+                gcr_vm_finish_terminal "$job_id" "$attempt" "$rec" "$state" reconcile \
+                    || finish_status="$?"
                 gcr_lock_release "$key"
+                case "$finish_status" in
+                    0|2) ;;
+                    *) return "$finish_status" ;;
+                esac
                 ;;
         esac
     done
