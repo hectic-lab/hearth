@@ -67,21 +67,28 @@ jq -e 'select(.job_id == "302" and .vm_id == 71 and
   "$(gcr_record_path 302 1)" >/dev/null
 test "$(grep -Ec '^(budget|token|create)$' "$calls" || true)" = 0
 
-# Start failure keeps Gitea runner disabled and record retryable.
+# Failed post-start health check keeps runner disabled and record retryable.
 retry_idle='{"job_id":"315","run_attempt":"1","repo":"hinterland/hearth","label":"gross-arm","created_at":1000,"ttl_min":180,"vm_id":79,"vm_name":"gcr-315-1","bootstrapped":true,"status":"idle_vm","idle_since":2000,"idle_expires_at":4600}'
 gcr_record_put 315 1 "$retry_idle"
 export GCR_PER_REPO_CAP=2
-FAIL_START=1
+FAIL_HEALTH=1
 gcr_vm_runner_service() {
   printf 'runner %s vm=%s\n' "$2" "$1" >> "$calls"
-  [ "$2" = start ] && [ "$FAIL_START" = 1 ] && return 1
+  [ "$2" = health ] && [ "$FAIL_HEALTH" = 1 ] && return 1
+  return 0
 }
 gcr_alloc 316 1 hinterland/hearth '["gross-arm"]'
 retry_rec="$(gcr_record_get 316 1)"
 test "$(gcr_record_field "$retry_rec" bootstrapped)" = false
 test "$(gcr_record_field "$retry_rec" reused_vm)" = true
+grep -q '^runner start vm=79$' "$calls"
+grep -q '^runner health vm=79$' "$calls"
 grep -q '^runner-disabled gcr-315-1 true$' "$calls"
-FAIL_START=0
+if grep -q '^runner-disabled gcr-315-1 false$' "$calls"; then
+  printf 'unhealthy reused runner must never become schedulable\n' >&2
+  exit 1
+fi
+FAIL_HEALTH=0
 gcr_record_del 316 1
 
 # Expired idle capacity is never claimed; normal allocation then charges once.

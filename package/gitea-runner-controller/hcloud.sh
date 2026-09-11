@@ -409,7 +409,11 @@ gcr_vm_public_ip() {
 # The controller starts the service only after the claim record is written.
 gcr_vm_runner_service() {
     vm_id="$1"; action="$2"
-    case "$action" in start|stop) ;; *) return 1 ;; esac
+    case "$action" in
+        start|stop) service_command="systemctl $action gitea-runner.service" ;;
+        health) service_command="systemctl is-active --quiet gitea-runner.service" ;;
+        *) return 1 ;;
+    esac
     ip="$(gcr_vm_public_ip "$vm_id")" || return 1
     [ -n "$ip" ] || return 1
     test -n "${GCR_SSH_PRIVKEY_FILE:-}" && test -r "$GCR_SSH_PRIVKEY_FILE" || return 1
@@ -418,7 +422,7 @@ gcr_vm_runner_service() {
     printf '\n' >> "$key_tmp"
     chmod 0600 "$key_tmp"
     ssh_opts="-i $key_tmp -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 -o BatchMode=yes"
-    if timeout 30 ssh $ssh_opts "root@$ip" "systemctl $action gitea-runner.service"; then
+    if timeout 30 ssh $ssh_opts "root@$ip" "$service_command"; then
         rm -f "$key_tmp"
         return 0
     fi
@@ -466,6 +470,76 @@ gcr_vm_collect_diagnostics() {
     fi
     rm -f "$key_tmp" "$diag_out"
     return 0
+}
+
+# Finish a terminal job under its allocation lock. Healthy bootstrapped VMs
+# become idle until their existing billing boundary; every unsafe transition
+# uses durable cleanup_pending teardown instead.
+gcr_vm_finish_terminal() {
+    finish_job="$1"; finish_attempt="$2"; finish_rec="$3"; finish_state="$4"
+    finish_via="${5:-webhook}"
+    finish_vm_id="$(gcr_record_field "$finish_rec" vm_id)"
+
+    if [ -n "$finish_vm_id" ] && [ "$finish_vm_id" != "null" ] \
+        && [ "$finish_vm_id" != "0" ]; then
+        case "$finish_state" in
+            completed:success|completed:cancelled|completed:skipped) ;;
+            completed:*)
+                finish_ip="$(gcr_vm_public_ip "$finish_vm_id" || true)"
+                gcr_vm_collect_diagnostics "$finish_vm_id" "$finish_ip" \
+                    "$finish_job" "$finish_state" || true
+                ;;
+        esac
+    fi
+
+    if finish_idle_rec="$(gcr_record_idle_json "$finish_rec")"; then
+        gcr_lock_acquire idle-pool || return 2
+        finish_repo="$(gcr_record_field "$finish_rec" repo)"
+        finish_runner="$(gcr_record_field "$finish_rec" vm_name)"
+        if ! gcr_vm_runner_service "$finish_vm_id" health; then
+            gcr_lock_release idle-pool
+            finish_cleanup_reason=idle-health-failed
+        elif ! gcr_gitea_runner_disabled "$finish_repo" "$finish_runner" true \
+            || ! gcr_vm_runner_service "$finish_vm_id" stop; then
+            gcr_lock_release idle-pool
+            finish_cleanup_reason=idle-stop-failed
+        elif ! gcr_record_put "$finish_job" "$finish_attempt" "$finish_idle_rec"; then
+            gcr_lock_release idle-pool
+            finish_cleanup_reason=idle-state-write-failed
+        else
+            finish_expires="$(gcr_record_field "$finish_idle_rec" idle_expires_at)"
+            gcr_lock_release idle-pool
+            gcr_event "vm-idle" "$finish_job" \
+                "{\"vm_id\":$finish_vm_id,\"expires_at\":$finish_expires,\"via\":\"$finish_via\"}"
+            gcr_log info --ns=sweep \
+                "job=$finish_job terminal ($finish_state), retaining vm=$finish_vm_id until $finish_expires"
+            return 0
+        fi
+
+        if gcr_vm_cleanup_start "$finish_job" "$finish_attempt" "$finish_rec" \
+            "$finish_cleanup_reason" false; then
+            gcr_event "vm-destroyed" "$finish_job" \
+                "{\"vm_id\":$finish_vm_id,\"reason\":\"$finish_cleanup_reason\",\"via\":\"$finish_via\"}"
+        else
+            gcr_event "vm-cleanup-pending" "$finish_job" \
+                "{\"vm_id\":$finish_vm_id,\"reason\":\"$finish_cleanup_reason\",\"via\":\"$finish_via\"}"
+        fi
+        return 0
+    fi
+
+    if [ -n "$finish_vm_id" ] && [ "$finish_vm_id" != "null" ] \
+        && [ "$finish_vm_id" != "0" ]; then
+        if gcr_vm_cleanup_start "$finish_job" "$finish_attempt" "$finish_rec" \
+            "$finish_state" false; then
+            gcr_event "vm-destroyed" "$finish_job" \
+                "{\"vm_id\":$finish_vm_id,\"reason\":\"$finish_state\",\"via\":\"$finish_via\"}"
+        else
+            gcr_event "vm-cleanup-pending" "$finish_job" \
+                "{\"vm_id\":$finish_vm_id,\"reason\":\"$finish_state\",\"via\":\"$finish_via\"}"
+        fi
+    else
+        gcr_record_del "$finish_job" "$finish_attempt"
+    fi
 }
 
 # Bootstrap delivery is SSH-push from the controller. The MicroOS snapshot's

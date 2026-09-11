@@ -98,8 +98,8 @@ gcr_now_epoch() {
     date -u '+%s'
 }
 
-# Successful VMs remain reusable until next billing-hour boundary, but never
-# beyond profile hard TTL. Prints updated idle record when retention is safe.
+# Healthy bootstrapped VMs remain reusable until next billing-hour boundary,
+# but never beyond profile hard TTL. Prints updated idle record when safe.
 gcr_record_idle_json() {
     gcr_idle_rec="$1"
     [ "$(gcr_record_field "$gcr_idle_rec" bootstrapped)" = "true" ] || return 1
