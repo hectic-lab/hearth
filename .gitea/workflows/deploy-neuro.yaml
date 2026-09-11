@@ -98,13 +98,13 @@ jobs:
             true)
               nix run --refresh '.#with-attic-cache' -- -- \
                 nix run --refresh '.#deploy' -- \
-                  push -- --flake '.#neuro|x86_64-linux' --target-host neuro --use-remote-sudo
+                  push -- --flake '.#neuro|x86_64-linux' --target-host neuro
               ;;
             false)
               unset ATTIC_TOKEN
               timeout --kill-after=60s 21600s \
                 nix run --refresh '.#deploy' -- \
-                  push -- --flake '.#neuro|x86_64-linux' --target-host neuro --use-remote-sudo
+                  push -- --flake '.#neuro|x86_64-linux' --target-host neuro
               ;;
             *)
               printf 'unsupported upload_cache value: %s\n' "$UPLOAD_CACHE" >&2
