@@ -126,7 +126,7 @@ in {
     else throw (envErrorMessage varName);
 
   # -- Cargo.toml --
-  cargoToml = src: (builtins.fromTOML (builtins.readFile "${src}/Cargo.toml"));
+  cargoToml = manifest: (builtins.fromTOML (builtins.readFile manifest));
 
   # Consolidated SQL bundles for the `hectic` schema. Single source of truth
   # for everything that creates objects in the `hectic` namespace, used by

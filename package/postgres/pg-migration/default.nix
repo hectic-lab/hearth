@@ -6,7 +6,7 @@
   ...
 }: let
   src = ./.;
-  cargo = cargoToml src;
+  cargo = cargoToml ./Cargo.toml;
 in
   pkgs.rustPlatform.buildRustPackage {
     pname = cargo.package.name;
