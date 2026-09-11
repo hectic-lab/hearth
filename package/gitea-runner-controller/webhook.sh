@@ -155,6 +155,7 @@ gcr_alloc() {
         vm_id="$(gcr_record_field "$reused" vm_id)"
         vm_name="$(gcr_record_field "$reused" vm_name)"
         if gcr_vm_runner_service "$vm_id" start \
+            && gcr_vm_runner_service "$vm_id" health \
             && gcr_gitea_runner_disabled "$repo" "$vm_name" false; then
             reused="$(gcr_record_get "$job_id" "$attempt")"
             reused="$(printf '%s' "$reused" | jq -c '.bootstrapped = true | del(.reused_vm)')"
@@ -247,54 +248,14 @@ gcr_deallocate() {
             ;;
     esac
 
-    vm_id="$(gcr_record_field "$rec" vm_id)"
-    if [ "$new_status" = "completed:success" ] \
-        && idle_rec="$(gcr_record_idle_json "$rec")"; then
-        if ! gcr_lock_acquire idle-pool; then
-            gcr_lock_release "$key"
-            return 0
-        fi
-        runner_name="$(gcr_record_field "$rec" vm_name)"
-        if ! gcr_gitea_runner_disabled "$(gcr_record_field "$rec" repo)" "$runner_name" true \
-            || ! gcr_vm_runner_service "$vm_id" stop; then
-            gcr_lock_release idle-pool
-            if gcr_vm_cleanup_start "$job_id" "$attempt" "$rec" idle-stop-failed false; then
-                gcr_event "vm-destroyed" "$job_id" \
-                    "{\"vm_id\":$vm_id,\"reason\":\"idle-stop-failed\"}"
-            else
-                gcr_event "vm-cleanup-pending" "$job_id" \
-                    "{\"vm_id\":$vm_id,\"reason\":\"idle-stop-failed\"}"
-            fi
-            gcr_lock_release "$key"
-            return 0
-        fi
-        gcr_record_put "$job_id" "$attempt" "$idle_rec"
-        idle_expires="$(gcr_record_field "$idle_rec" idle_expires_at)"
-        gcr_lock_release idle-pool
-        gcr_lock_release "$key"
-        gcr_event "vm-idle" "$job_id" "{\"vm_id\":$vm_id,\"expires_at\":$idle_expires}"
-        return 0
-    fi
-
-    if [ -n "$vm_id" ] && [ "$vm_id" != "null" ] && [ "$vm_id" != "0" ]; then
-        case "$new_status" in
-            completed:success|completed:cancelled|completed:skipped) ;;
-            completed:*)
-                ip="$(gcr_vm_public_ip "$vm_id" || true)"
-                gcr_vm_collect_diagnostics "$vm_id" "$ip" "$job_id" "$new_status" || true
-                ;;
-        esac
-        if gcr_vm_cleanup_start "$job_id" "$attempt" "$rec" "$new_status" false; then
-            gcr_event "vm-destroyed" "$job_id" \
-                "{\"vm_id\":$vm_id,\"reason\":\"$new_status\"}"
-        else
-            gcr_event "vm-cleanup-pending" "$job_id" \
-                "{\"vm_id\":$vm_id,\"reason\":\"$new_status\"}"
-        fi
-    else
-        gcr_record_del "$job_id" "$attempt"
-    fi
+    finish_status=0
+    gcr_vm_finish_terminal "$job_id" "$attempt" "$rec" "$new_status" webhook \
+        || finish_status="$?"
     gcr_lock_release "$key"
+    case "$finish_status" in
+        0|2) return 0 ;;
+        *) return "$finish_status" ;;
+    esac
 }
 
 gcr_mark_in_progress() {
