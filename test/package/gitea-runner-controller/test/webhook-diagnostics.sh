@@ -70,3 +70,22 @@ gcr_deallocate 203 1 completed:failure
 grep -q 'diag vm=53 ip= job=203 reason=completed:failure' "$calls_ip_fail"
 grep -q 'destroy vm=53' "$calls_ip_fail"
 test ! -e "$(gcr_record_path 203 1)"
+
+# Gitea emits zero-based run_attempt values for initial workflow jobs.
+gcr_read_request() {
+  gcr_hdr_event_type=workflow_job
+  gcr_hdr_delivery=test-delivery
+  gcr_hdr_signature=test-signature
+  gcr_body='{"action":"queued","workflow_job":{"id":331,"run_attempt":0,"labels":["nix"]},"repository":{"full_name":"hinterland/hearth"}}'
+}
+gcr_verify_signature() { :; }
+gcr_alloc() {
+  printf '%s:%s:%s:%s\n' "$1" "$2" "$3" "$4" > "$GCR_STATE_DIR/allocation"
+  RESPONSE_CODE=202
+  RESPONSE_BODY=allocated
+}
+gcr_respond() { printf '%s:%s\n' "$1" "$2" > "$GCR_STATE_DIR/response"; }
+
+gcr_handle_webhook
+test "$(cat "$GCR_STATE_DIR/allocation")" = '331:0:hinterland/hearth:["nix"]'
+test "$(cat "$GCR_STATE_DIR/response")" = '202:allocated'

@@ -332,7 +332,7 @@ gcr_handle_webhook() {
 
     [ -n "$action" ] || { gcr_respond 400 "malformed payload"; exit 0; }
     case "$job_id:$attempt" in
-        *[!0-9:]*|:*|*::*|*:|0:*|*:0)
+        *[!0-9:]*|:*|*::*|*:|0:*)
             gcr_respond 400 "malformed payload"; exit 0
             ;;
     esac
