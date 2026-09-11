@@ -71,6 +71,29 @@ grep -q 'diag vm=53 ip= job=203 reason=completed:failure' "$calls_ip_fail"
 grep -q 'destroy vm=53' "$calls_ip_fail"
 test ! -e "$(gcr_record_path 203 1)"
 
+# Terminal webhook retains ownership and capacity until DELETE succeeds.
+record_delete_fail='{"job_id":"204","run_attempt":"1","repo":"hinterland/hearth","label":"nix","created_at":"1","ttl_min":480,"vm_id":54,"vm_name":"gcr-204-1","bootstrapped":true,"status":"vm_active"}'
+gcr_record_put 204 1 "$record_delete_fail"
+gcr_vm_destroy() {
+  printf 'destroy-failed vm=%s\n' "$1" >> "$calls_ip_fail"
+  return 1
+}
+gcr_deallocate 204 1 completed:failure
+cleanup_rec="$(gcr_record_get 204 1)"
+test "$(gcr_record_field "$cleanup_rec" status)" = cleanup_pending
+test "$(gcr_count_active)" = 1
+test "$(gcr_count_active_repo hinterland/hearth)" = 1
+
+gcr_vm_destroy() { printf 'destroy-retry vm=%s\n' "$1" >> "$calls_ip_fail"; }
+key="$(gcr_alloc_key 204 1)"
+gcr_lock_acquire "$key"
+gcr_vm_cleanup_pending 204 1 "$(gcr_record_get 204 1)"
+gcr_lock_release "$key"
+test ! -e "$(gcr_record_path 204 1)"
+test "$(gcr_count_active)" = 0
+grep -q '^destroy-failed vm=54$' "$calls_ip_fail"
+grep -q '^destroy-retry vm=54$' "$calls_ip_fail"
+
 # Gitea emits zero-based run_attempt values for initial workflow jobs.
 gcr_read_request() {
   gcr_hdr_event_type=workflow_job

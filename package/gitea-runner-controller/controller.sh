@@ -40,10 +40,16 @@ gcr_sweep_ttl() {
             fi
             gcr_log info --ns=sweep "idle slot expired job=$job_id vm=$vm_id"
             if [ -n "$vm_id" ] && [ "$vm_id" != "null" ] && [ "$vm_id" != "0" ]; then
-                gcr_vm_destroy "$vm_id" || true
-                gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"idle-expired\"}"
+                if gcr_vm_cleanup_start "$job_id" "$attempt" "$rec" idle-expired false; then
+                    gcr_event "vm-destroyed" "$job_id" \
+                        "{\"vm_id\":$vm_id,\"reason\":\"idle-expired\"}"
+                else
+                    gcr_event "vm-cleanup-pending" "$job_id" \
+                        "{\"vm_id\":$vm_id,\"reason\":\"idle-expired\"}"
+                fi
+            else
+                gcr_record_del "$job_id" "$attempt"
             fi
-            gcr_record_del "$job_id" "$attempt"
             gcr_lock_release idle-pool
             continue
         fi
@@ -78,11 +84,17 @@ gcr_sweep_ttl() {
             if [ -n "$vm_id" ] && [ "$vm_id" != "null" ] && [ "$vm_id" != "0" ]; then
                 ip="$(gcr_vm_public_ip "$vm_id" || true)"
                 gcr_vm_collect_diagnostics "$vm_id" "$ip" "$job_id" ttl || true
-                gcr_vm_destroy "$vm_id" || true
-                gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"ttl\"}"
+                if gcr_vm_cleanup_start "$job_id" "$attempt" "$rec" ttl false; then
+                    gcr_event "vm-destroyed" "$job_id" \
+                        "{\"vm_id\":$vm_id,\"reason\":\"ttl\"}"
+                else
+                    gcr_event "vm-cleanup-pending" "$job_id" \
+                        "{\"vm_id\":$vm_id,\"reason\":\"ttl\"}"
+                fi
+            else
+                gcr_record_del "$job_id" "$attempt"
             fi
             gcr_event "job-ttl-expired" "$job_id" "{\"age\":$age}"
-            gcr_record_del "$job_id" "$attempt"
             gcr_lock_release "$key"
         fi
     done
@@ -108,8 +120,20 @@ gcr_sweep_orphan_vms() {
 
         if ! gcr_record_exists_for_vm_id "$vm_id"; then
             gcr_log warn --ns=sweep "orphan VM $vm_id job=$jid attempt=$att -> destroy"
-            gcr_vm_destroy "$vm_id" || true
-            gcr_event "orphan-vm-destroyed" "${jid:-unknown}" "{\"vm_id\":$vm_id}"
+            cleanup_job="${jid:-orphan-$vm_id}"
+            cleanup_attempt="${att:-0}"
+            cleanup_rec="$(jq -n --arg j "$cleanup_job" --arg a "$cleanup_attempt" \
+                --arg v "$vm_id" --arg vn "$(printf '%s' "$vm" | jq -r '.name // ""')" \
+                '{job_id:$j, run_attempt:$a, repo:"", label:"", created_at:"0",
+                  ttl_min:0, vm_id:($v|tonumber), vm_name:$vn,
+                  bootstrapped:false, status:"cleanup_pending"}')"
+            if gcr_vm_cleanup_start "$cleanup_job" "$cleanup_attempt" \
+                "$cleanup_rec" orphan false; then
+                gcr_event "orphan-vm-destroyed" "$cleanup_job" "{\"vm_id\":$vm_id}"
+            else
+                gcr_event "vm-cleanup-pending" "$cleanup_job" \
+                    "{\"vm_id\":$vm_id,\"reason\":\"orphan\"}"
+            fi
         fi
         i=$((i + 1))
     done
@@ -149,7 +173,7 @@ gcr_alloc_deferred() {
         return 0
     }
     set -- $profile
-    server_type="$1"; ttl_min="$2"; rate="$3"
+    server_type="$1"; ttl_min="$2"
 
     gcr_lock_acquire admission || {
         gcr_lock_release "$key"
@@ -190,11 +214,6 @@ gcr_alloc_deferred() {
         return 0
     fi
 
-    gcr_budget_can_add "$rate" "$ttl_min" || {
-        gcr_lock_release admission
-        gcr_lock_release "$key"
-        return 0
-    }
     reg_token="$(gcr_gitea_registration_token "$repo")" || {
         gcr_lock_release admission
         gcr_lock_release "$key"
@@ -203,23 +222,19 @@ gcr_alloc_deferred() {
 
     vm_name="gcr-${job_id}-${attempt}"
     created_at="$(gcr_now_epoch)"
-    vm_id="$(gcr_vm_create "$vm_name" "$label" "$server_type" "$ttl_min" \
-        "$reg_token" "$job_id" "$attempt" "$repo")" && [ -n "$vm_id" ] || {
+    create_status=0
+    created="$(gcr_vm_create "$vm_name" "$label" "$server_type" "$ttl_min" \
+        "$reg_token" "$job_id" "$attempt" "$repo")" || create_status="$?"
+    if [ "$create_status" -ne 0 ] || [ -z "$created" ]; then
         gcr_lock_release admission
         gcr_lock_release "$key"
         return 0
-    }
-
-    gcr_budget_add "$rate" "$ttl_min"
-
-    rec="$(jq -n --arg j "$job_id" --arg a "$attempt" --arg r "$repo" \
-        --arg l "$label" --arg t "$created_at" --arg v "$vm_id" \
-        --arg vn "$vm_name" --arg ttl "$ttl_min" \
-        '{job_id:$j, run_attempt:$a, repo:$r, label:$l,
-          created_at:$t, ttl_min:($ttl|tonumber), vm_id:($v|tonumber),
-          vm_name:$vn, bootstrapped:false, status:"pending_vm"}')"
-    if ! gcr_record_put "$job_id" "$attempt" "$rec"; then
-        gcr_vm_destroy "$vm_id" || true
+    fi
+    set -- $created
+    vm_id="$1"; actual_server_type="$2"; actual_rate="$3"
+    if ! gcr_vm_record_created "$job_id" "$attempt" "$repo" "$label" \
+        "$created_at" "$vm_id" "$vm_name" "$ttl_min" \
+        "$actual_server_type" "$actual_rate"; then
         gcr_lock_release admission
         gcr_lock_release "$key"
         return 0
@@ -228,6 +243,83 @@ gcr_alloc_deferred() {
     gcr_lock_release "$key"
     gcr_event "vm-created" "$job_id" "{\"vm_id\":$vm_id,\"label\":\"$label\",\"ttl_min\":$ttl_min,\"via\":\"deferred-retry\"}"
     gcr_log info --ns=alloc "deferred job=$job_id allocated vm=$vm_id"
+}
+
+gcr_sweep_cleanup_pending() {
+    for f in $(gcr_active_records); do
+        rec="$(cat "$f")"
+        [ "$(gcr_record_field "$rec" status)" = "cleanup_pending" ] || continue
+        job_id="$(gcr_record_field "$rec" job_id)"
+        attempt="$(gcr_record_field "$rec" run_attempt)"
+        key="$(gcr_alloc_key "$job_id" "$attempt")"
+        gcr_lock_acquire "$key" || continue
+        if ! gcr_lock_acquire admission; then
+            gcr_lock_release "$key"
+            continue
+        fi
+        rec="$(gcr_record_get "$job_id" "$attempt")"
+        if [ "$(gcr_record_field "$rec" status)" = "cleanup_pending" ]; then
+            gcr_vm_cleanup_pending "$job_id" "$attempt" "$rec" || true
+        fi
+        gcr_lock_release admission
+        gcr_lock_release "$key"
+    done
+}
+
+gcr_sweep_create_ambiguous() {
+    for f in $(gcr_active_records); do
+        rec="$(cat "$f")"
+        [ "$(gcr_record_field "$rec" status)" = "create_ambiguous" ] || continue
+        job_id="$(gcr_record_field "$rec" job_id)"
+        attempt="$(gcr_record_field "$rec" run_attempt)"
+        key="$(gcr_alloc_key "$job_id" "$attempt")"
+        gcr_lock_acquire "$key" || continue
+        if ! gcr_lock_acquire admission; then
+            gcr_lock_release "$key"
+            continue
+        fi
+        rec="$(gcr_record_get "$job_id" "$attempt")"
+        if [ "$(gcr_record_field "$rec" status)" != "create_ambiguous" ]; then
+            gcr_lock_release admission
+            gcr_lock_release "$key"
+            continue
+        fi
+        find_status=0
+        found_vm_id="$(gcr_vm_find_created \
+            "$(gcr_record_field "$rec" vm_name)" "$job_id" "$attempt" \
+            "$(gcr_record_field "$rec" label)" \
+            "$(gcr_record_field "$rec" server_type)" \
+            "$(gcr_record_field "$rec" candidate_location)" \
+            "$(gcr_record_field "$rec" candidate_arch)")" || find_status="$?"
+        case "$find_status" in
+            0)
+                rec="$(printf '%s' "$rec" | jq -c --arg vm "$found_vm_id" \
+                    '.vm_id = ($vm | tonumber)
+                     | .status = "pending_vm"
+                     | .bootstrapped = false
+                     | del(.create_http, .create_curl_status,
+                           .candidate_location, .candidate_arch)')"
+                if gcr_record_put "$job_id" "$attempt" "$rec"; then
+                    gcr_event "vm-create-recovered" "$job_id" \
+                        "{\"vm_id\":$found_vm_id,\"label\":\"$(gcr_record_field "$rec" label)\"}"
+                fi
+                ;;
+            1)
+                rec="$(printf '%s' "$rec" | jq -c \
+                    '.status = "cleanup_pending"
+                     | .cleanup_reason = "ambiguous-create-absent"
+                     | .cleanup_refund_budget = true
+                     | .cleanup_vm_destroyed = true
+                     | .cleanup_budget_released = false')"
+                if gcr_record_put "$job_id" "$attempt" "$rec"; then
+                    gcr_vm_cleanup_pending "$job_id" "$attempt" "$rec" || true
+                fi
+                ;;
+            2) ;;
+        esac
+        gcr_lock_release admission
+        gcr_lock_release "$key"
+    done
 }
 
 gcr_retry_deferred() {
@@ -343,10 +435,17 @@ gcr_bootstrap_pending() {
                             gcr_vm_collect_diagnostics "$vm_id" "$ip" "$job_id" "$state" || true
                             ;;
                     esac
-                    gcr_vm_destroy "$vm_id" || true
-                    gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"pending-job-completed\",\"state\":\"$state\"}"
+                    if gcr_vm_cleanup_start "$job_id" "$attempt" "$rec" \
+                        pending-job-completed false; then
+                        gcr_event "vm-destroyed" "$job_id" \
+                            "{\"vm_id\":$vm_id,\"reason\":\"pending-job-completed\",\"state\":\"$state\"}"
+                    else
+                        gcr_event "vm-cleanup-pending" "$job_id" \
+                            "{\"vm_id\":$vm_id,\"reason\":\"pending-job-completed\"}"
+                    fi
+                else
+                    gcr_record_del "$job_id" "$attempt"
                 fi
-                gcr_record_del "$job_id" "$attempt"
                 gcr_lock_release "$key"
                 continue
                 ;;
@@ -418,10 +517,15 @@ gcr_reap_finished_jobs() {
                     if ! gcr_gitea_runner_disabled "$repo" "$runner_name" true \
                         || ! gcr_vm_runner_service "$vm_id" stop; then
                         gcr_lock_release idle-pool
-                        gcr_vm_destroy "$vm_id" || true
-                        gcr_record_del "$job_id" "$attempt"
+                        if gcr_vm_cleanup_start "$job_id" "$attempt" "$rec" \
+                            idle-stop-failed false; then
+                            gcr_event "vm-destroyed" "$job_id" \
+                                "{\"vm_id\":$vm_id,\"reason\":\"idle-stop-failed\",\"via\":\"reconcile\"}"
+                        else
+                            gcr_event "vm-cleanup-pending" "$job_id" \
+                                "{\"vm_id\":$vm_id,\"reason\":\"idle-stop-failed\",\"via\":\"reconcile\"}"
+                        fi
                         gcr_lock_release "$key"
-                        gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"idle-stop-failed\",\"via\":\"reconcile\"}"
                         continue
                     fi
                     gcr_record_put "$job_id" "$attempt" "$idle_rec"
@@ -442,10 +546,17 @@ gcr_reap_finished_jobs() {
                             gcr_vm_collect_diagnostics "$vm_id" "$ip" "$job_id" "$state" || true
                             ;;
                     esac
-                    gcr_vm_destroy "$vm_id" || true
-                    gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"job-completed\",\"state\":\"$state\"}"
+                    if gcr_vm_cleanup_start "$job_id" "$attempt" "$rec" \
+                        job-completed false; then
+                        gcr_event "vm-destroyed" "$job_id" \
+                            "{\"vm_id\":$vm_id,\"reason\":\"job-completed\",\"state\":\"$state\"}"
+                    else
+                        gcr_event "vm-cleanup-pending" "$job_id" \
+                            "{\"vm_id\":$vm_id,\"reason\":\"job-completed\",\"state\":\"$state\"}"
+                    fi
+                else
+                    gcr_record_del "$job_id" "$attempt"
                 fi
-                gcr_record_del "$job_id" "$attempt"
                 gcr_lock_release "$key"
                 ;;
         esac
@@ -453,6 +564,8 @@ gcr_reap_finished_jobs() {
 }
 
 gcr_tick() {
+    gcr_sweep_create_ambiguous
+    gcr_sweep_cleanup_pending
     gcr_sweep_ttl
     gcr_reap_finished_jobs
     gcr_sweep_orphan_vms

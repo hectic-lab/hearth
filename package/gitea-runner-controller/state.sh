@@ -257,6 +257,21 @@ gcr_budget_can_add() {
     return 0
 }
 
+# Atomic replacement preserves last valid total when a write fails.
+gcr_budget_write() {
+    gcr_budget_file="$1"; gcr_budget_value="$2"
+    gcr_budget_tmp="$(mktemp "$(dirname "$gcr_budget_file")/.budget.XXXXXX")" \
+        || return 1
+    if ! printf '%s\n' "$gcr_budget_value" > "$gcr_budget_tmp"; then
+        rm -f "$gcr_budget_tmp"
+        return 1
+    fi
+    if ! mv -f "$gcr_budget_tmp" "$gcr_budget_file"; then
+        rm -f "$gcr_budget_tmp"
+        return 1
+    fi
+}
+
 # Caller holds admission lock and has already checked gcr_budget_can_add.
 gcr_budget_add() {
     rate="$1"; ttl_min="$2"
@@ -264,10 +279,46 @@ gcr_budget_add() {
     file="$GCR_STATE_DIR/budget/$month"
     current="$(cat "$file" 2>/dev/null || echo 0)"
     projected="$(awk -v c="$current" -v r="$rate" -v t="$ttl_min" 'BEGIN {printf "%.4f", c + r * t / 60}')"
-    printf '%s\n' "$projected" > "$file"
-    return 0
+    gcr_budget_write "$file" "$projected"
+}
+
+# Caller holds admission lock and is rolling back a matching budget addition.
+gcr_budget_sub() {
+    rate="$1"; ttl_min="$2"
+    month="$(date -u '+%Y-%m')"
+    file="$GCR_STATE_DIR/budget/$month"
+    current="$(cat "$file" 2>/dev/null || echo 0)"
+    projected="$(awk -v c="$current" -v r="$rate" -v t="$ttl_min" \
+        'BEGIN {v = c - r * t / 60; if (v < 0) v = 0; printf "%.4f", v}')"
+    gcr_budget_write "$file" "$projected"
+}
+
+# Claim is durable before credit. Existing claim means credit is consumed:
+# it may have completed, or it may have leaked fail-closed after a crash.
+# Never subtract twice when outcome between aggregate and state writes is unknown.
+gcr_budget_refund_once() {
+    refund_key="$1"; refund_rate="$2"; refund_ttl="$3"
+    refund_month="$(date -u '+%Y-%m')"
+    refund_root="$GCR_STATE_DIR/budget/refunds/$refund_month"
+    refund_claim="$refund_root/$refund_key"
+    mkdir -p "$refund_root" || return 1
+    if ! mkdir "$refund_claim" 2>/dev/null; then
+        if [ -d "$refund_claim" ]; then
+            if [ ! -f "$refund_claim/status" ]; then
+                gcr_log error --ns=budget \
+                    "refund outcome uncertain key=$refund_key; retaining fail-closed claim"
+            fi
+            return 0
+        fi
+        return 1
+    fi
+    if ! printf '%s %s\n' "$refund_rate" "$refund_ttl" > "$refund_claim/intent"; then
+        return 1
+    fi
+    gcr_budget_sub "$refund_rate" "$refund_ttl" || return 1
+    printf 'refunded\n' > "$refund_claim/status" || return 1
 }
 
 gcr_active_records() {
-    grep -El '"status"[[:space:]]*:[[:space:]]*"(pending_vm|vm_active|idle_vm|deferred)"' "$GCR_STATE_DIR"/jobs/*.json 2>/dev/null || true
+    grep -El '"status"[[:space:]]*:[[:space:]]*"(pending_vm|vm_active|idle_vm|deferred|cleanup_pending|create_ambiguous)"' "$GCR_STATE_DIR"/jobs/*.json 2>/dev/null || true
 }

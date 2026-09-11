@@ -19,7 +19,11 @@ gcr_now_epoch() { printf '%s' "$NOW"; }
 calls="$GCR_STATE_DIR/calls"
 gcr_budget_add() { printf 'budget\n' >> "$calls"; }
 gcr_gitea_registration_token() { printf 'token'; printf 'token\n' >> "$calls"; }
-gcr_vm_create() { printf 'create\n' >> "$calls"; printf '99'; }
+gcr_vm_create() {
+  printf 'create\n' >> "$calls"
+  gcr_budget_add 0.032 180
+  printf '99 cx53 0.032'
+}
 gcr_vm_destroy() { printf 'destroy vm=%s\n' "$1" >> "$calls"; }
 gcr_vm_runner_service() { printf 'runner %s vm=%s\n' "$2" "$1" >> "$calls"; }
 gcr_gitea_runner_disabled() { printf 'runner-disabled %s %s\n' "$2" "$3" >> "$calls"; }
@@ -270,6 +274,7 @@ set -eu
 . "$LOG_SH"
 . "$STATE_SH"
 . "$DECIDE_SH"
+. "$HCLOUD_SH"
 . "$WEBHOOK_SH"
 gcr_now_epoch() { printf '2000'; }
 gcr_budget_add() { printf 'budget %s\n' "$1" >> "$GCR_STATE_DIR/admission-calls"; }
@@ -277,7 +282,8 @@ gcr_gitea_registration_token() { printf token; }
 gcr_vm_create() {
   sleep 1
   printf 'create %s\n' "$6" >> "$GCR_STATE_DIR/admission-calls"
-  printf '%s' "$6"
+  gcr_budget_add 0.032 180
+  printf '%s cx53 0.032' "$6"
 }
 gcr_vm_destroy() { :; }
 gcr_state_init

@@ -36,6 +36,7 @@ gcr_hcloud_req() {
     method="$1"; path="$2"; body="${3:-}"
     token="$(gcr_hcloud_token)" || return 1
     GCR_LAST_BODY="$(mktemp "${TMPDIR:-/tmp}/gcr-resp.XXXXXX")"
+    curl_status=0
     if [ -n "$body" ]; then
         code="$(printf '%s' "$body" | curl -sS -X "$method" \
             -H "Authorization: Bearer $token" \
@@ -43,13 +44,20 @@ gcr_hcloud_req() {
             --data-binary @- \
             -o "$GCR_LAST_BODY" \
             -w '%{http_code}' \
-            "$GCR_API$path")"
+            "$GCR_API$path")" || curl_status="$?"
     else
         code="$(curl -sS -X "$method" \
             -H "Authorization: Bearer $token" \
             -o "$GCR_LAST_BODY" \
             -w '%{http_code}' \
-            "$GCR_API$path")"
+            "$GCR_API$path")" || curl_status="$?"
+    fi
+    case "$code" in ''|*[!0-9]*) code=000 ;; esac
+    GCR_LAST_CURL_STATUS="$curl_status"
+    GCR_LAST_HTTP="$code"
+    if [ "$curl_status" -ne 0 ]; then
+        gcr_log warn --ns=hcloud "transport failed path=$path curl=$curl_status http=$code"
+        return 1
     fi
     case "$code" in 2??) return 0 ;; esac
     gcr_log warn --ns=hcloud "request failed path=$path http=$code body=$(head -c 200 "$GCR_LAST_BODY" | gcr_redact)"
@@ -60,6 +68,64 @@ gcr_vm_list_managed() {
     if gcr_hcloud_req GET "/servers?label_selector=gitea-runner-controller%3Dmanaged&per_page=50"; then
         jq -S '.servers' "$GCR_LAST_BODY"
     fi
+}
+
+# Exact deterministic create identity. Exit 0 = one match (prints id),
+# 1 = confirmed absent, 2 = lookup failed or identity invariant violated.
+gcr_vm_find_created() {
+    find_name="$1"; find_job="$2"; find_attempt="$3"; find_label="$4"
+    find_type="$5"; find_location="$6"; find_arch="$7"
+    if ! gcr_hcloud_req GET "/servers?name=$find_name"; then
+        return 2
+    fi
+    find_matches="$(jq -c \
+        --arg name "$find_name" --arg job "$find_job" --arg attempt "$find_attempt" \
+        --arg label "$find_label" --arg type "$find_type" \
+        --arg location "$find_location" --arg arch "$find_arch" \
+        '[.servers[] | select(
+          .name == $name
+          and .labels["gitea-runner-controller"] == "managed"
+          and .labels["gcr.job-id"] == $job
+          and .labels["gcr.run-attempt"] == $attempt
+          and .labels["gcr.label"] == $label
+          and .labels["gcr.location"] == $location
+          and .labels["gcr.arch"] == $arch
+          and ((.server_type.name // .server_type) == $type))]' \
+        "$GCR_LAST_BODY")" || return 2
+    find_count="$(printf '%s' "$find_matches" | jq 'length')" || return 2
+    case "$find_count" in
+        0) return 1 ;;
+        1) printf '%s' "$find_matches" | jq -r '.[0].id' ;;
+        *) return 2 ;;
+    esac
+}
+
+gcr_create_explicitly_rejected() {
+    case "$1" in
+        400|401|403|404|405|409|412|422|423) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+gcr_vm_record_create_ambiguous() {
+    ambiguous_name="$1"; ambiguous_label="$2"; ambiguous_ttl="$3"
+    ambiguous_job="$4"; ambiguous_attempt="$5"; ambiguous_repo="$6"
+    ambiguous_type="$7"; ambiguous_rate="$8"; ambiguous_location="$9"
+    shift 9; ambiguous_arch="$1"; ambiguous_http="$2"; ambiguous_curl="$3"
+    ambiguous_rec="$(jq -n --arg j "$ambiguous_job" --arg a "$ambiguous_attempt" \
+        --arg r "$ambiguous_repo" --arg l "$ambiguous_label" \
+        --arg t "$(gcr_now_epoch)" --arg vn "$ambiguous_name" \
+        --arg ttl "$ambiguous_ttl" --arg st "$ambiguous_type" \
+        --arg rate "$ambiguous_rate" --arg loc "$ambiguous_location" \
+        --arg arch "$ambiguous_arch" --arg http "$ambiguous_http" \
+        --arg curl "$ambiguous_curl" \
+        '{job_id:$j, run_attempt:$a, repo:$r, label:$l,
+          created_at:$t, ttl_min:($ttl|tonumber), vm_id:"", vm_name:$vn,
+          server_type:$st, budget_rate:$rate, candidate_location:$loc,
+          candidate_arch:$arch, create_http:$http, create_curl_status:$curl,
+          bootstrapped:false,
+          status:"create_ambiguous"}')"
+    gcr_record_put "$ambiguous_job" "$ambiguous_attempt" "$ambiguous_rec"
 }
 
 gcr_vm_build_userdata() {
@@ -163,9 +229,10 @@ runcmd:
 }
 
 # gcr_vm_create NAME LABEL SERVER_TYPE TTL_MIN REG_TOKEN JOB_ID ATTEMPT REPO
-# Prints new server id.
+# Caller holds admission lock. Reserves each affordable candidate before its
+# create request; prints new server id, actual server type, and reserved rate.
 gcr_vm_create() {
-    vm_name="$1"; label="$2"; server_type="$3"; ttl_min="$4"
+    vm_name="$1"; label="$2"; ttl_min="$4"
     reg_token="$5"; job_id="$6"; attempt="$7"; repo="$8"
 
     ttl_min="$(gcr_label_ttl "$label")" || return 1
@@ -174,8 +241,18 @@ gcr_vm_create() {
     while read -r candidate_type candidate_loc candidate_arch; do
         [ -n "${candidate_type:-}" ] || continue
         candidate_n=$((candidate_n + 1))
+        candidate_rate="$(gcr_server_hourly_rate "$candidate_type")" || continue
+        if ! gcr_budget_can_add "$candidate_rate" "$ttl_min"; then
+            gcr_log info --ns=hcloud "skip candidate[$candidate_n] label=$label type=$candidate_type over budget"
+            continue
+        fi
+        if ! gcr_budget_add "$candidate_rate" "$ttl_min"; then
+            gcr_log error --ns=hcloud "budget reservation write failed label=$label type=$candidate_type"
+            return 1
+        fi
         image_id="$(gcr_image_id_for_arch "$candidate_arch" "$label")" || {
             gcr_log warn --ns=hcloud "skip candidate[$candidate_n] label=$label arch=$candidate_arch no image"
+            gcr_budget_sub "$candidate_rate" "$ttl_min" || return 1
             continue
         }
         payload="$(jq -n \
@@ -203,8 +280,33 @@ gcr_vm_create() {
                 "gcr.created-at":$ts, "gcr.ttl-min":$ttl}}')"
         gcr_log info --ns=hcloud "try candidate[$candidate_n] label=$label type=$candidate_type arch=$candidate_arch loc=$candidate_loc"
         if gcr_hcloud_req POST /servers "$payload"; then
-            jq -r '.server.id' "$GCR_LAST_BODY"
+            printf '%s %s %s\n' \
+                "$(jq -r '.server.id' "$GCR_LAST_BODY")" "$candidate_type" "$candidate_rate"
             return 0
+        fi
+        create_http="${GCR_LAST_HTTP:-000}"
+        create_curl="${GCR_LAST_CURL_STATUS:-0}"
+        find_status=0
+        found_vm_id="$(gcr_vm_find_created "$vm_name" "$job_id" "$attempt" \
+            "$label" "$candidate_type" "$candidate_loc" "$candidate_arch")" \
+            || find_status="$?"
+        if [ "$find_status" -eq 0 ]; then
+            printf '%s %s %s\n' "$found_vm_id" "$candidate_type" "$candidate_rate"
+            return 0
+        fi
+        if [ "$find_status" -eq 1 ] \
+            && gcr_create_explicitly_rejected "$create_http"; then
+            if ! gcr_budget_sub "$candidate_rate" "$ttl_min"; then
+                gcr_log error --ns=hcloud "budget reservation rollback failed label=$label type=$candidate_type"
+                return 1
+            fi
+        else
+            if ! gcr_vm_record_create_ambiguous "$vm_name" "$label" "$ttl_min" \
+                "$job_id" "$attempt" "$repo" "$candidate_type" "$candidate_rate" \
+                "$candidate_loc" "$candidate_arch" "$create_http" "$create_curl"; then
+                gcr_log error --ns=hcloud "cannot persist ambiguous create job=$job_id type=$candidate_type"
+            fi
+            return 2
         fi
         if [ "$candidate_n" -le 3 ]; then
             sleep 5
@@ -217,12 +319,83 @@ EOF
     return 1
 }
 
-# gcr_vm_destroy SERVER_ID — idempotent best-effort destroy.
+# gcr_vm_destroy SERVER_ID — success means DELETE returned HTTP 2xx.
 gcr_vm_destroy() {
     if ! gcr_hcloud_req DELETE "/servers/$1"; then
         gcr_log warn --ns=hcloud "destroy failed or already gone: server $1"
         return 1
     fi
+}
+
+# Only cleanup records establish prior ownership, making DELETE 404 a
+# confirmed-absent success rather than an ambiguous lookup failure.
+gcr_vm_destroy_owned() {
+    gcr_vm_destroy "$1" && return 0
+    [ "${GCR_LAST_HTTP:-}" = "404" ]
+}
+
+# Caller holds the lifecycle path's existing ownership locks.
+gcr_vm_cleanup_pending() {
+    cleanup_job="$1"; cleanup_attempt="$2"; cleanup_rec="$3"
+    cleanup_vm_id="$(gcr_record_field "$cleanup_rec" vm_id)"
+    if [ "$(gcr_record_field "$cleanup_rec" cleanup_vm_destroyed)" != "true" ]; then
+        gcr_vm_destroy_owned "$cleanup_vm_id" || return 1
+        cleanup_rec="$(printf '%s' "$cleanup_rec" | jq -c '.cleanup_vm_destroyed = true')"
+        gcr_record_put "$cleanup_job" "$cleanup_attempt" "$cleanup_rec" || return 1
+    fi
+    if [ "$(gcr_record_field "$cleanup_rec" cleanup_refund_budget)" = "true" ] \
+        && [ "$(gcr_record_field "$cleanup_rec" cleanup_budget_released)" != "true" ]; then
+        cleanup_rate="$(gcr_record_field "$cleanup_rec" budget_rate)"
+        cleanup_ttl="$(gcr_record_field "$cleanup_rec" ttl_min)"
+        cleanup_refund_key="$(gcr_alloc_key "$cleanup_job" "$cleanup_attempt")"
+        gcr_budget_refund_once "$cleanup_refund_key" "$cleanup_rate" "$cleanup_ttl" \
+            || return 1
+        cleanup_rec="$(printf '%s' "$cleanup_rec" | jq -c '.cleanup_budget_released = true')"
+        gcr_record_put "$cleanup_job" "$cleanup_attempt" "$cleanup_rec" || return 1
+    fi
+    gcr_record_del "$cleanup_job" "$cleanup_attempt"
+}
+
+# Persist intent before DELETE. Normal lifecycle teardown never changes budget;
+# failed creation passes REFUND_BUDGET=true to release its unused reservation.
+gcr_vm_cleanup_start() {
+    cleanup_job="$1"; cleanup_attempt="$2"; cleanup_source="$3"
+    cleanup_reason="$4"; cleanup_refund="$5"
+    cleanup_rec="$(printf '%s' "$cleanup_source" | jq -c \
+        --arg reason "$cleanup_reason" --argjson refund "$cleanup_refund" \
+        '.status = "cleanup_pending"
+         | .cleanup_reason = $reason
+         | .cleanup_refund_budget = $refund
+         | .cleanup_vm_destroyed = false
+         | .cleanup_budget_released = false')"
+    gcr_record_put "$cleanup_job" "$cleanup_attempt" "$cleanup_rec" || return 1
+    gcr_vm_cleanup_pending "$cleanup_job" "$cleanup_attempt" "$cleanup_rec"
+}
+
+# Caller holds allocation and admission locks. A failed primary write first
+# persists cleanup ownership; reservation is released only after destroy.
+gcr_vm_record_created() {
+    record_job="$1"; record_attempt="$2"; record_repo="$3"; record_label="$4"
+    record_created="$5"; record_vm_id="$6"; record_vm_name="$7"
+    record_ttl="$8"; record_type="$9"; shift 9; record_rate="$1"
+    record_rec="$(jq -n --arg j "$record_job" --arg a "$record_attempt" \
+        --arg r "$record_repo" --arg l "$record_label" --arg t "$record_created" \
+        --arg v "$record_vm_id" --arg vn "$record_vm_name" --arg ttl "$record_ttl" \
+        --arg st "$record_type" --arg rate "$record_rate" \
+        '{job_id:$j, run_attempt:$a, repo:$r, label:$l,
+          created_at:$t, ttl_min:($ttl|tonumber), vm_id:($v|tonumber),
+          vm_name:$vn, server_type:$st, budget_rate:$rate,
+          bootstrapped:false, status:"pending_vm"}')"
+    gcr_record_put "$record_job" "$record_attempt" "$record_rec" && return 0
+
+    if ! gcr_vm_cleanup_start "$record_job" "$record_attempt" "$record_rec" \
+        state-write-failed true; then
+        cleanup_rec="$(gcr_record_get "$record_job" "$record_attempt")"
+        [ "$(gcr_record_field "$cleanup_rec" status)" = "cleanup_pending" ] && return 1
+        gcr_log error --ns=alloc "cannot persist cleanup record job=$record_job vm=$record_vm_id"
+        return 1
+    fi
+    return 1
 }
 
 gcr_vm_public_ip() {

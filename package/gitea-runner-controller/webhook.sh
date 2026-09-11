@@ -116,7 +116,7 @@ gcr_alloc() {
     fi
 
     set -- $profile
-    server_type="$1"; ttl_min="$2"; rate="$3"
+    server_type="$1"; ttl_min="$2"
 
     if ! gcr_lock_acquire admission; then
         rec="$(jq -n --arg j "$job_id" --arg a "$attempt" --arg r "$repo" \
@@ -183,15 +183,6 @@ gcr_alloc() {
         return 0
     fi
 
-    if ! gcr_budget_can_add "$rate" "$ttl_min"; then
-        gcr_record_del "$job_id" "$attempt"
-        gcr_lock_release admission
-        gcr_lock_release "$key"
-        gcr_event "budget-refused" "$job_id" "{\"rate\":$rate,\"ttl_min\":$ttl_min}"
-        RESPONSE_CODE=202; RESPONSE_BODY="refused: monthly budget exhausted"
-        return 0
-    fi
-
     reg_token="$(gcr_gitea_registration_token "$repo")" || {
         gcr_record_del "$job_id" "$attempt"
         gcr_lock_release admission
@@ -203,26 +194,27 @@ gcr_alloc() {
 
     vm_name="gcr-${job_id}-${attempt}"
     created_at="$(gcr_now_epoch)"
-    vm_id="$(gcr_vm_create "$vm_name" "$label" "$server_type" "$ttl_min" \
-        "$reg_token" "$job_id" "$attempt" "$repo")" || {
-        gcr_record_del "$job_id" "$attempt"
+    create_status=0
+    created="$(gcr_vm_create "$vm_name" "$label" "$server_type" "$ttl_min" \
+        "$reg_token" "$job_id" "$attempt" "$repo")" || create_status="$?"
+    if [ "$create_status" -ne 0 ]; then
+        if [ "$create_status" -eq 2 ]; then
+            gcr_event "vm-create-ambiguous" "$job_id" "{}"
+            RESPONSE_CODE=202; RESPONSE_BODY="VM creation pending recovery"
+        else
+            gcr_record_del "$job_id" "$attempt"
+            gcr_event "vm-create-failed" "$job_id" "{}"
+            RESPONSE_CODE=202; RESPONSE_BODY="VM creation failed"
+        fi
         gcr_lock_release admission
         gcr_lock_release "$key"
-        gcr_event "vm-create-failed" "$job_id" "{}"
-        RESPONSE_CODE=202; RESPONSE_BODY="VM creation failed"
         return 0
-    }
-
-    gcr_budget_add "$rate" "$ttl_min"
-
-    rec="$(jq -n --arg j "$job_id" --arg a "$attempt" --arg r "$repo" \
-        --arg l "$label" --arg t "$created_at" --arg v "$vm_id" \
-        --arg vn "$vm_name" --arg ttl "$ttl_min" \
-        '{job_id:$j, run_attempt:$a, repo:$r, label:$l,
-          created_at:$t, ttl_min:($ttl|tonumber), vm_id:($v|tonumber),
-          vm_name:$vn, bootstrapped:false, status:"pending_vm"}')"
-    if ! gcr_record_put "$job_id" "$attempt" "$rec"; then
-        gcr_vm_destroy "$vm_id" || true
+    fi
+    set -- $created
+    vm_id="$1"; actual_server_type="$2"; actual_rate="$3"
+    if ! gcr_vm_record_created "$job_id" "$attempt" "$repo" "$label" \
+        "$created_at" "$vm_id" "$vm_name" "$ttl_min" \
+        "$actual_server_type" "$actual_rate"; then
         gcr_lock_release admission
         gcr_lock_release "$key"
         RESPONSE_CODE=202; RESPONSE_BODY="VM state write failed"
@@ -266,10 +258,14 @@ gcr_deallocate() {
         if ! gcr_gitea_runner_disabled "$(gcr_record_field "$rec" repo)" "$runner_name" true \
             || ! gcr_vm_runner_service "$vm_id" stop; then
             gcr_lock_release idle-pool
-            gcr_vm_destroy "$vm_id" || true
-            gcr_record_del "$job_id" "$attempt"
+            if gcr_vm_cleanup_start "$job_id" "$attempt" "$rec" idle-stop-failed false; then
+                gcr_event "vm-destroyed" "$job_id" \
+                    "{\"vm_id\":$vm_id,\"reason\":\"idle-stop-failed\"}"
+            else
+                gcr_event "vm-cleanup-pending" "$job_id" \
+                    "{\"vm_id\":$vm_id,\"reason\":\"idle-stop-failed\"}"
+            fi
             gcr_lock_release "$key"
-            gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"idle-stop-failed\"}"
             return 0
         fi
         gcr_record_put "$job_id" "$attempt" "$idle_rec"
@@ -288,11 +284,16 @@ gcr_deallocate() {
                 gcr_vm_collect_diagnostics "$vm_id" "$ip" "$job_id" "$new_status" || true
                 ;;
         esac
-        gcr_vm_destroy "$vm_id" || true
-        gcr_event "vm-destroyed" "$job_id" "{\"vm_id\":$vm_id,\"reason\":\"$new_status\"}"
+        if gcr_vm_cleanup_start "$job_id" "$attempt" "$rec" "$new_status" false; then
+            gcr_event "vm-destroyed" "$job_id" \
+                "{\"vm_id\":$vm_id,\"reason\":\"$new_status\"}"
+        else
+            gcr_event "vm-cleanup-pending" "$job_id" \
+                "{\"vm_id\":$vm_id,\"reason\":\"$new_status\"}"
+        fi
+    else
+        gcr_record_del "$job_id" "$attempt"
     fi
-
-    gcr_record_del "$job_id" "$attempt"
     gcr_lock_release "$key"
 }
 

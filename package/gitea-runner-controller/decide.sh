@@ -41,7 +41,14 @@ gcr_label_ttl() {
 gcr_label_candidates() {
     label="$1"
     case "$label" in
-        ubuntu-latest|gross-x86)
+        ubuntu-latest)
+            printf '%s\n' \
+                'cx23 nbg1 amd64' 'cx23 fsn1 amd64' 'cx23 hel1 amd64' \
+                'cx33 nbg1 amd64' 'cx33 fsn1 amd64' 'cx33 hel1 amd64' \
+                'cx43 nbg1 amd64' 'cx43 fsn1 amd64' 'cx43 hel1 amd64' \
+                'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64'
+            ;;
+        gross-x86)
             printf '%s\n' \
                 'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64' \
                 'cx43 nbg1 amd64' 'cx43 fsn1 amd64' 'cx43 hel1 amd64' \
@@ -65,7 +72,14 @@ gcr_label_candidates() {
                 'cax41 nbg1 arm64' 'cax41 fsn1 arm64' 'cax41 hel1 arm64' \
                 'cx43 nbg1 amd64' 'cx43 fsn1 amd64' 'cx43 hel1 amd64'
             ;;
-        nix|gross-nix-x86)
+        nix)
+            printf '%s\n' \
+                'cx23 nbg1 amd64' 'cx23 fsn1 amd64' 'cx23 hel1 amd64' \
+                'cx33 nbg1 amd64' 'cx33 fsn1 amd64' 'cx33 hel1 amd64' \
+                'cx43 nbg1 amd64' 'cx43 fsn1 amd64' 'cx43 hel1 amd64' \
+                'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64'
+            ;;
+        gross-nix-x86)
             printf '%s\n' \
                 'cx53 nbg1 amd64' 'cx53 fsn1 amd64' 'cx53 hel1 amd64' \
                 'cx43 nbg1 amd64' 'cx43 fsn1 amd64' 'cx43 hel1 amd64' \
@@ -148,7 +162,7 @@ gcr_count_active() {
     for f in $(gcr_active_records); do
         status="$(gcr_record_field "$(cat "$f")" status)"
         case "$status" in
-            pending_vm|vm_active) count=$((count + 1)) ;;
+            pending_vm|vm_active|cleanup_pending|create_ambiguous) count=$((count + 1)) ;;
         esac
     done
     printf '%s' "$count"
@@ -160,7 +174,7 @@ gcr_count_active_repo() {
     for f in $(gcr_active_records); do
         rec="$(cat "$f")"
         case "$(gcr_record_field "$rec" status)" in
-            pending_vm|vm_active) ;;
+            pending_vm|vm_active|cleanup_pending|create_ambiguous) ;;
             *) continue ;;
         esac
         [ "$(gcr_record_field "$rec" repo)" = "$repo" ] && count=$((count + 1))
