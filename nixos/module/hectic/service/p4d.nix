@@ -56,7 +56,7 @@
     "-L" "${cfg.dataDir}/logs/bootstrap.log"
   ] ++ lib.optional (!cfg.caseSensitive) "-C1";
 
-  initScript = pkgs.writeShellScript "p4d-init" ''
+  initScript = ''
     set -eu
 
     export P4ROOT=${lib.escapeShellArg cfg.dataDir}
@@ -334,7 +334,7 @@ in {
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
-      preStart = builtins.readFile initScript;
+      preStart = initScript;
       serviceConfig = {
         Type = "simple";
         User = serviceUser;
