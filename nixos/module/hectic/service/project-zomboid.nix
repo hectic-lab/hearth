@@ -16,6 +16,16 @@
     name: value:
       "${name}=${if builtins.isBool value then lib.boolToString value else toString value}"
   ) serverProperties;
+  luaValue = value:
+    if builtins.isBool value then
+      lib.boolToString value
+    else if builtins.isInt value then
+      toString value
+    else
+      "\"${lib.replaceStrings [ "\\" "\"" "\n" "\r" ] [ "\\\\" "\\\"" "\\n" "\\r" ] value}\"";
+  sandboxConfigLines = lib.mapAttrsToList (
+    name: value: "${name} = ${luaValue value},"
+  ) cfg.sandboxProperties;
   adminPasswordFile = "${cfg.dataDir}/admin-password";
   startScript = pkgs.writeShellScript "project-zomboid-start" ''
     admin_password=$(${pkgs.coreutils}/bin/cat ${lib.escapeShellArg adminPasswordFile})
@@ -100,6 +110,18 @@ in {
       description = "Runtime file with additional INI values, suitable for secrets.";
     };
 
+    sandboxProperties = lib.mkOption {
+      type = lib.types.attrsOf (
+        lib.types.oneOf [
+          lib.types.bool
+          lib.types.int
+          lib.types.str
+        ]
+      );
+      default = { };
+      description = "Values for the Project Zomboid SandboxVars.lua file.";
+    };
+
     openFirewall = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -151,6 +173,15 @@ in {
           ${lib.optionalString (cfg.serverPropertiesFile != null)
             "${pkgs.coreutils}/bin/cat ${lib.escapeShellArg cfg.serverPropertiesFile};"}
         } > ${lib.escapeShellArg "${cfg.dataDir}/Server/${cfg.serverName}.ini"}
+        ${lib.optionalString (cfg.sandboxProperties != { }) ''
+          {
+            ${pkgs.coreutils}/bin/printf '%s\n' 'SandboxVars = {';
+            ${lib.concatMapStringsSep "\n  " (line:
+              "${pkgs.coreutils}/bin/printf '%s\\n' ${lib.escapeShellArg line};"
+            ) sandboxConfigLines}
+            ${pkgs.coreutils}/bin/printf '%s\n' '};';
+          } > ${lib.escapeShellArg "${cfg.dataDir}/Server/${cfg.serverName}_SandboxVars.lua"}
+        ''}
       '';
 
       serviceConfig = {
@@ -159,7 +190,7 @@ in {
         WorkingDirectory = cfg.dataDir;
         Environment = [
           "HOME=${cfg.dataDir}"
-          "SteamAppId=380870"
+          "SteamAppId=108600"
         ];
         ExecStart = startScript;
         Restart = "on-failure";

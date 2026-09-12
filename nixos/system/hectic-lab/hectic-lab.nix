@@ -95,8 +95,65 @@ in {
       enable = true;
       memory = "3g";
       serverName = "servertest";
-      workshopItems = [ ];
-      mods = [ ];
+      serverProperties = {
+        Map = "map_distanciado;Muldraugh, KY";
+        DoLuaChecksum = false;
+        Public = true;
+      };
+      sandboxProperties = {
+        StartMonth = 12;
+        StartDay = 1;
+      };
+      workshopItems = [
+        "2210760610" # Cryogenic Winter +Easy/Hard Modes
+        "3676456221" # Lua Digital Watch Framework
+        "3600401184" # Realistic Temperature Mod
+        "3387824513" # Material Weight Reducer
+        "3543229299" # Project RV Interior
+        "3387539308" # Auto Mechanics
+        "3402491515" # Tsar's Common Library B42
+        "3403490889" # Standardized Vehicle Upgrades 3 - Core
+        "3520758551" # More Car Features + Spawn Zones Expansion
+        "3110911330" # '87 Ford B700/F700 Trucks
+        "3413150945" # More Damaged Objects
+        "3554424111" # U.S. M998 Humvee
+        "2705406713" # Military Tool Kit
+        "3512708849" # Shotgun Trajectory
+        "3401576145" # Firearm Models: Redux
+        "3401134276" # Vanilla Gear Expanded
+        "3394044313" # Buttstroke / Gun Stock Attack
+        "2956146279" # Rain Cleans Blood
+        "3693258802" # Tactical Hold
+        "3394588830" # Simple Flashlight on Belt
+        "2684285534" # Spongie's Clothing
+        "2812326159" # Spongie's Open Jackets
+      ];
+      mods = [
+        "\\PROJECTRVInterior42"
+        "\\Military_Tool_Kit"
+        "\\CryogenicWinter2NormalMode"
+        "\\LuaDigitalWatchUI"
+        "\\RC_RealisticColdMod"
+        "\\Material Weight Reducer"
+        "\\Ammunition Weight Reducer"
+        "\\AutoMechanics"
+        "\\tsarslib"
+        "\\StandardizedVehicleUpgrades3Core"
+        "\\WayMoreCars"
+        "\\87fordB700"
+        "\\MoreDamagedObjects"
+        "\\U.S. M998 Humvee by Papa_Chad"
+        "\\ShotgunTrajectory"
+        "\\FMR"
+        "\\VanillaGearExpanded"
+        "\\Buttstroke"
+        "\\RainCleansBlood"
+        "\\TacHold Complete"
+        "\\LightOnBelt"
+        "\\SpnCloth"
+        "\\SpnOpenClothBase"
+        "\\SpnOpenCloth"
+      ];
     };
     services.p4d = {
       enable = true;
