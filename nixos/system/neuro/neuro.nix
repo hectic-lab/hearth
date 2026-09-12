@@ -24,11 +24,11 @@
 
   ollamaPrebuilt = pkgs.stdenvNoCC.mkDerivation {
     pname = "ollama";
-    version = "0.22.1";
+     version = "0.24.0";
 
     src = pkgs.fetchurl {
-      url = "https://github.com/ollama/ollama/releases/download/v0.22.1/ollama-linux-amd64.tar.zst";
-      hash = "sha256-4nwP6PYKgkFi+Bzge0v9p2fc5PNX12LhSbPQ3gq62fs=";
+       url = "https://github.com/ollama/ollama/releases/download/v0.24.0/ollama-linux-amd64.tar.zst";
+       hash = "sha256-FcX41mugbg07RxnfiGhhLb1m4U6CdgkpuzVS4WV83Ns=";
     };
 
     nativeBuildInputs = [
