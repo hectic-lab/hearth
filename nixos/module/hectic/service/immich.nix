@@ -59,25 +59,25 @@ in
 
       host = lib.mkOption {
         type = lib.types.strMatching "[A-Za-z0-9][A-Za-z0-9.-]*";
-        default = "u666713.your-storagebox.de";
+        default = "u666713-sub1.your-storagebox.de";
         description = "Hetzner Storage Box SMB hostname.";
       };
 
       username = lib.mkOption {
         type = lib.types.strMatching "[A-Za-z0-9][A-Za-z0-9_-]*";
-        default = "u666713";
+        default = "u666713-sub1";
         description = "Storage Box SMB username.";
       };
 
       share = lib.mkOption {
         type = lib.types.strMatching "[A-Za-z0-9][A-Za-z0-9_-]*";
-        default = "backup";
+        default = "u666713-sub1";
         description = "SMB share exported by Storage Box.";
       };
 
       subdirectory = lib.mkOption {
-        type = lib.types.strMatching "[A-Za-z0-9][A-Za-z0-9_./-]*";
-        default = "immich";
+        type = lib.types.nullOr (lib.types.strMatching "[A-Za-z0-9][A-Za-z0-9_./-]*");
+        default = null;
         description = "Directory within the SMB share used by Immich.";
       };
 
@@ -157,8 +157,8 @@ in
         "gid=${config.services.immich.group}"
         "file_mode=0660"
         "dir_mode=0770"
-        "prefixpath=${cfg.storageBox.subdirectory}"
-      ];
+      ] ++ lib.optional (cfg.storageBox.subdirectory != null)
+        "prefixpath=${cfg.storageBox.subdirectory}";
     };
 
     systemd.services.immich-server.serviceConfig.RequiresMountsFor = lib.mkIf cfg.storageBox.enable [

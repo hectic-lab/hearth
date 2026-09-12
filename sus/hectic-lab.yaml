@@ -1,3 +1,5 @@
+immich:
+    storage-box: ENC[AES256_GCM,data:eFNo4YaxJL25tM2icmwT+xrgkTybm20bKxCdc9JjG3ijmjM7FeOw/oQ4,iv:Y7GE+IfgQpz3Q4EvXWlPJnrFm08DkUT6qeDOr/nGFEM=,tag:3gtZA0v5dwGUlE34Ijz4Rg==,type:str]
 mailserver:
     security:
         hashedPassword: ENC[AES256_GCM,data:Z03x7tWHIhlRPaRZSrukyYOKhs6LdasZhZdizHdhlaJp2bywQZXKBaDABj2ab4rhwAPCHWhSiBjz35zV,iv:Z3hLC/A4YLVQkflr4cg9/wkKzo/RUdnLTwYC7ZhS0Hk=,tag:mSF/mbzH7iG6PwzyEsmyGg==,type:str]
@@ -81,7 +83,7 @@ sops:
             Yk43ZmlTc09aNFV1VjdjN2RWQlFWTDQKcYSvA2lHP8GS0lkYY19Tm8RXmFHQX5Ck
             qV2Fn22Fic4M5FVKDEMfaO6WmeXgki9a8dGeO9LlC+Phf16SOq7eLw==
             -----END AGE ENCRYPTED FILE-----
-    lastmodified: "2026-06-06T12:32:43Z"
-    mac: ENC[AES256_GCM,data:cmATu3qAaY7B74NvbejyMQMflh3akc0eLV+yal0NrTSE3rMd8rXYiAv1d2j/RxNd2ZLvnj5g6PFBP3O7v0JuYjKcNOvImz7SR2RRIaEWfT9Nl7XGtpTn5EpIi5KiL3unsqZTjvGrRywyLVfg0bxdKxX7RLnrBInX/zPVvMRNCL0=,iv:YpQdmsloPs3LrXA2FodziBCfxNfKrImPSe7TLNO1KH0=,tag:0By4hddfHl/0a5souDsJBw==,type:str]
+    lastmodified: "2026-09-12T22:13:26Z"
+    mac: ENC[AES256_GCM,data:NdCP9Vm8AQej0u3/6evlskRV4B5+QA3gNegQ5s5laoX+SwJNXnrJtAwZBKCWEZQKMb32qI+YVgnIJfn+HaJCkeaDqmc2I8d3DobiucraZypXh2VtWXGe4vCwzbhoc8KDb1eSNKt2e5CIzaR89BQYuwIHdngTSlzJ/qdc02qR1tA=,iv:VQcQoXpMlVCPZkREL35dwKSCCDTbAscDQk01mn9jht0=,tag:oaJTl+uj33/8WVoTv/j7Nw==,type:str]
     unencrypted_suffix: _unencrypted
     version: 3.10.2

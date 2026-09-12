@@ -26,6 +26,7 @@
   sandboxConfigLines = lib.mapAttrsToList (
     name: value: "${name} = ${luaValue value},"
   ) cfg.sandboxProperties;
+  zomboidDir = "${cfg.dataDir}/Zomboid";
   adminPasswordFile = "${cfg.dataDir}/admin-password";
   startScript = pkgs.writeShellScript "project-zomboid-start" ''
     admin_password=$(${pkgs.coreutils}/bin/cat ${lib.escapeShellArg adminPasswordFile})
@@ -165,14 +166,14 @@ in {
           's/"-Xmx[0-9]+[mMgG]"/"-Xmx${cfg.memory}"/' \
           ${lib.escapeShellArg "${cfg.installDir}/ProjectZomboid64.json"}
         ${pkgs.coreutils}/bin/install -d -m 0750 \
-          ${lib.escapeShellArg "${cfg.dataDir}/Server"}
+          ${lib.escapeShellArg "${zomboidDir}/Server"}
         {
           ${lib.concatMapStringsSep "\n  " (line:
             "${pkgs.coreutils}/bin/printf '%s\\n' ${lib.escapeShellArg line};"
           ) configLines}
           ${lib.optionalString (cfg.serverPropertiesFile != null)
             "${pkgs.coreutils}/bin/cat ${lib.escapeShellArg cfg.serverPropertiesFile};"}
-        } > ${lib.escapeShellArg "${cfg.dataDir}/Server/${cfg.serverName}.ini"}
+        } > ${lib.escapeShellArg "${zomboidDir}/Server/${cfg.serverName}.ini"}
         ${lib.optionalString (cfg.sandboxProperties != { }) ''
           {
             ${pkgs.coreutils}/bin/printf '%s\n' 'SandboxVars = {';
@@ -180,7 +181,7 @@ in {
               "${pkgs.coreutils}/bin/printf '%s\\n' ${lib.escapeShellArg line};"
             ) sandboxConfigLines}
             ${pkgs.coreutils}/bin/printf '%s\n' '};';
-          } > ${lib.escapeShellArg "${cfg.dataDir}/Server/${cfg.serverName}_SandboxVars.lua"}
+          } > ${lib.escapeShellArg "${zomboidDir}/Server/${cfg.serverName}_SandboxVars.lua"}
         ''}
       '';
 

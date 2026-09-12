@@ -63,6 +63,7 @@ in {
     (import ./containers.nix          { inherit flake self inputs; })
     ./experimental-sshd.nix
     (import ./ente.nix               { inherit domain; })
+    (import ./immich.nix             { inherit domain; })
     (import ./mechabellum.nix         { inherit flake self inputs domain; })
     (import (./. + "/sentinèlla.nix") { inherit flake self inputs domain; })
   ];
@@ -231,6 +232,7 @@ in {
         key = "init-postgresql";
       };
       "atticd/environment" = {};
+      "immich/storage-box" = {};
       "wg-bfs/private-key" = {};
       "gitea-runner/org-registration-token" = {
         sopsFile = flake + "/sus/gitea-runners.yaml";
