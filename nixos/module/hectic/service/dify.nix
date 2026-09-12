@@ -25,6 +25,9 @@
           DB_USERNAME: ''${DB_USERNAME:-postgres}
           DB_HOST: ''${DB_HOST:-db_postgres}
           DB_PORT: ''${DB_PORT:-5432}
+          REDIS_HOST: ''${REDIS_HOST:-redis}
+          REDIS_PORT: ''${REDIS_PORT:-6379}
+          REDIS_DB: ''${REDIS_DB:-0}
   '';
 in {
   options.hectic.services.dify = {
