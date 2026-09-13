@@ -164,5 +164,6 @@ in
     systemd.services.immich-server.unitConfig.RequiresMountsFor = lib.mkIf cfg.storageBox.enable [
       cfg.mediaLocation
     ];
+    systemd.services.immich-server.serviceConfig.Restart = lib.mkForce "always";
   };
 }
