@@ -146,8 +146,7 @@ in
       options = [
         "_netdev"
         "nofail"
-        "x-systemd.automount"
-        "x-systemd.idle-timeout=600"
+        "x-systemd.mount-timeout=60s"
         "vers=3.1.1"
         "seal"
         "cache=none"
