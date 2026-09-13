@@ -161,7 +161,7 @@ in
         "prefixpath=${cfg.storageBox.subdirectory}";
     };
 
-    systemd.services.immich-server.serviceConfig.RequiresMountsFor = lib.mkIf cfg.storageBox.enable [
+    systemd.services.immich-server.unitConfig.RequiresMountsFor = lib.mkIf cfg.storageBox.enable [
       cfg.mediaLocation
     ];
   };

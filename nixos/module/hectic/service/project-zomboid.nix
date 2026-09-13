@@ -16,15 +16,24 @@
     name: value:
       "${name}=${if builtins.isBool value then lib.boolToString value else toString value}"
   ) serverProperties;
+  sandboxValueType = lib.types.oneOf [
+    lib.types.bool
+    lib.types.int
+    lib.types.float
+    lib.types.str
+    (lib.types.attrsOf sandboxValueType)
+  ];
   luaValue = value:
     if builtins.isBool value then
       lib.boolToString value
-    else if builtins.isInt value then
+    else if builtins.isInt value || builtins.isFloat value then
       toString value
+    else if builtins.isAttrs value then
+      "{ ${lib.concatStringsSep " " (lib.mapAttrsToList (name: child: "[${luaValue name}] = ${luaValue child},") value)} }"
     else
       "\"${lib.replaceStrings [ "\\" "\"" "\n" "\r" ] [ "\\\\" "\\\"" "\\n" "\\r" ] value}\"";
   sandboxConfigLines = lib.mapAttrsToList (
-    name: value: "${name} = ${luaValue value},"
+    name: value: "[${luaValue name}] = ${luaValue value},"
   ) cfg.sandboxProperties;
   zomboidDir = "${cfg.dataDir}/Zomboid";
   adminPasswordFile = "${cfg.dataDir}/admin-password";
@@ -112,13 +121,7 @@ in {
     };
 
     sandboxProperties = lib.mkOption {
-      type = lib.types.attrsOf (
-        lib.types.oneOf [
-          lib.types.bool
-          lib.types.int
-          lib.types.str
-        ]
-      );
+      type = lib.types.attrsOf sandboxValueType;
       default = { };
       description = "Values for the Project Zomboid SandboxVars.lua file.";
     };

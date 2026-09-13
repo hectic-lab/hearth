@@ -100,10 +100,20 @@ in {
         Map = "map_distanciado;Muldraugh, KY";
         DoLuaChecksum = false;
         Public = true;
+        AntiCheatPermission = 3;
       };
       sandboxProperties = {
         StartMonth = 12;
         StartDay = 1;
+        WaterShut = 3;
+        WaterShutModifier = 60;
+        ElecShut = 3;
+        ElecShutModifier = 60;
+        MinutesPerPage = 0.5;
+        ZombieLore = {
+          Transmission = 4;
+          Mortality = 7;
+        };
       };
       workshopItems = [
         "2210760610" # Cryogenic Winter +Easy/Hard Modes
