@@ -199,6 +199,7 @@ in {
         ExecStart = startScript;
         Restart = "on-failure";
         RestartSec = 5;
+        TimeoutStartSec = "15min";
         TimeoutStopSec = 30;
         UMask = "0077";
       };

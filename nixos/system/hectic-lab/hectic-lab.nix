@@ -101,6 +101,7 @@ in {
         DoLuaChecksum = false;
         Public = true;
         AntiCheatPermission = 3;
+        AntiCheatSpeed = 3;
       };
       sandboxProperties = {
         StartMonth = 12;
