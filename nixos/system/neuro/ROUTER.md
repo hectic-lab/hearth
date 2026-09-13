@@ -50,6 +50,7 @@ Ports that need to be forwarded from router to `192.168.0.10`:
 | 5269 | 5269 | TCP | XMPP (s2s) |
 | 10000 | 10000 | UDP | Jitsi Videobridge |
 | 25565 | 25565 | TCP | Minecraft |
+| 25567 | 25567 | TCP | Minecraft WoW Mine map |
 
 ## Troubleshooting
 
