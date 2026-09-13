@@ -70,7 +70,7 @@ in {
   imports = [
     self.nixosModules.hectic
     inputs.sops-nix.nixosModules.sops
-    ./minecraft.nix
+    ./minecraft
     ./hardware.nix 
   ];
 
