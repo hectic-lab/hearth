@@ -51,6 +51,7 @@ Ports that need to be forwarded from router to `192.168.0.10`:
 | 10000 | 10000 | UDP | Jitsi Videobridge |
 | 25565 | 25565 | TCP | Minecraft |
 | 25567 | 25567 | TCP | Minecraft WoW Mine map |
+| 25568 | 25568 | TCP | Minecraft World of Sosal |
 
 ## Troubleshooting
 
