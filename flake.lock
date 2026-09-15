@@ -625,6 +625,28 @@
         "type": "github"
       }
     },
+    "iana-angl": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "rust-overlay": "rust-overlay"
+      },
+      "locked": {
+        "lastModified": 1789498292,
+        "narHash": "sha256-bsrT7MWTXL+tpwDZmI5xWLPZZPYAzU1WjcGlNmqpePw=",
+        "ref": "refs/heads/master",
+        "rev": "2937d257d601b40de2437a51ebc3c7b61b40f679",
+        "revCount": 37,
+        "type": "git",
+        "url": "https://gitea.hectic-lab.com/yukkop/learning.git"
+      },
+      "original": {
+        "rev": "2937d257d601b40de2437a51ebc3c7b61b40f679",
+        "type": "git",
+        "url": "https://gitea.hectic-lab.com/yukkop/learning.git"
+      }
+    },
     "impermanence": {
       "locked": {
         "lastModified": 1737831083,
@@ -986,6 +1008,7 @@
         "hectic-landing": "hectic-landing",
         "home-manager": "home-manager",
         "hyprland": "hyprland",
+        "iana-angl": "iana-angl",
         "impermanence": "impermanence",
         "mechabellum-replay-analysis": "mechabellum-replay-analysis",
         "nix-darwin": "nix-darwin",
@@ -996,11 +1019,32 @@
         "nixos-wsl": "nixos-wsl",
         "nixpkgs": "nixpkgs_2",
         "nixvim": "nixvim",
-        "rust-overlay": "rust-overlay",
+        "rust-overlay": "rust-overlay_2",
         "sops-nix": "sops-nix"
       }
     },
     "rust-overlay": {
+      "inputs": {
+        "nixpkgs": [
+          "iana-angl",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1789457514,
+        "narHash": "sha256-Aggle++fTyAifBy+QBPxjM+obO5iepKW/8MDxQtgGvI=",
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "rev": "89e99bf0778a8f2cd18c9360c3f19c1ee47fc739",
+        "type": "github"
+      },
+      "original": {
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "type": "github"
+      }
+    },
+    "rust-overlay_2": {
       "inputs": {
         "nixpkgs": [
           "nixpkgs"

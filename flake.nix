@@ -72,6 +72,10 @@
       url = "git+ssh://git@github.com/liquizz/hectic-landing.git";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    iana-angl = {
+      url = "git+https://gitea.hectic-lab.com/yukkop/learning.git?rev=2937d257d601b40de2437a51ebc3c7b61b40f679";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     mechabellum-replay-analysis = {
       # NOTE(yukkop): private repo - SSH access required.
       # Only evaluated when nixosConfigurations."hectic-lab|x86_64-linux" is built.

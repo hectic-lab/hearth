@@ -58,6 +58,7 @@ in {
     self.nixosModules."shadowsocks"      # NOTE(nrv): usage/instance
 
     inputs.hectic-landing.nixosModules.hectic-landing
+    inputs.iana-angl.nixosModules.iana-angl
 
     (import ./attic.nix              { inherit flake self inputs domain; })
     (import ./containers.nix          { inherit flake self inputs; })
@@ -74,6 +75,12 @@ in {
     domain  = domain;
     port    = 3000;
     host    = "127.0.0.1";
+  };
+
+  services.iana-angl = {
+    enable  = true;
+    package = inputs.iana-angl.packages.${pkgs.stdenv.hostPlatform.system}.iana-angl;
+    domain  = "lessons.${domain}";
   };
 
   # NOTE(yukkop): both nixos-mailserver and hectic-landing module set
@@ -102,6 +109,7 @@ in {
         Public = true;
         AntiCheatPermission = 3;
         AntiCheatSpeed = 3;
+        AntiCheatHit = 3;
       };
       sandboxProperties = {
         StartMonth = 12;
@@ -377,6 +385,10 @@ in {
           autoindex on;
         '';
       };
+    };
+    virtualHosts."lessons.${domain}" = {
+      enableACME = true;
+      forceSSL = true;
     };
     virtualHosts."snuff.${domain}" = {
       enableACME = true;
