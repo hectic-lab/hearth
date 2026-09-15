@@ -178,6 +178,7 @@ in {
       # NOTE(yukkop): ephemeral Hetzner VM runners (1 VM = 1 job).
       # Runbook: infra/gitea-runners/runbook.md "Ephemeral VM runner cutover".
       enable  = true;
+      budgetEurMonthly = "30";
       imageId = "429747473"; # MicroOS x86 + persistent controller SSH key and writable Nix mount
       armImageId = "423979717"; # OpenSUSE MicroOS ARM K3S 2026-08-24 snapshot
       nixImageId = "161547269"; # Ubuntu 24.04 x86; Nix needs writable root
