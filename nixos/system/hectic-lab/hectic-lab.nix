@@ -48,6 +48,7 @@ let
   giteaRunnerService = "gitea-runner-${giteaRunnerEscapedInstance}";
   giteaRunnerTokenEnvService = "${giteaRunnerService}-token-env";
   giteaRunnerTokenEnv = "/run/gitea-runner-${giteaRunnerInstance}/token.env";
+  worldOfSosalRoot = "/var/www/store/world-of-sosal";
 in {
   imports = [
     self.nixosModules.hectic
@@ -341,6 +342,8 @@ in {
 
   systemd.tmpfiles.rules = [
     "d /var/www/store 0755 nginx nginx -"
+    "d ${worldOfSosalRoot} 0750 root nginx -"
+    "d ${worldOfSosalRoot}/releases 0750 root nginx -"
   ];
 
   systemd.services.${giteaRunnerTokenEnvService} = {
@@ -383,6 +386,60 @@ in {
       locations."/" = {
         extraConfig = ''
           autoindex on;
+        '';
+      };
+      locations."= /world-of-sosal/" = {
+        extraConfig = ''
+          alias ${./static/world-of-sosal/index.html};
+          default_type text/html;
+          add_header Cache-Control "no-cache" always;
+          limit_except GET {
+            deny all;
+          }
+        '';
+      };
+      locations."= /world-of-sosal/latest.mrpack" = {
+        extraConfig = ''
+          root /var/www/store;
+          default_type application/zip;
+          add_header Content-Disposition "attachment" always;
+          add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+          try_files $uri =404;
+          if ($request_method != GET) { return 405; }
+        '';
+      };
+      locations."= /world-of-sosal/SHA256SUMS" = {
+        extraConfig = ''
+          root /var/www/store;
+          default_type text/plain;
+          add_header Content-Disposition "attachment" always;
+          add_header Cache-Control "no-cache, no-store, must-revalidate" always;
+          try_files $uri =404;
+          if ($request_method != GET) { return 405; }
+        '';
+      };
+      locations."= /world-of-sosal/releases/" = {
+        extraConfig = ''
+          return 404;
+        '';
+      };
+      locations."~ ^/world-of-sosal/releases/[A-Za-z0-9][A-Za-z0-9._-]*\\.mrpack$" = {
+        extraConfig = ''
+          root /var/www/store;
+          default_type application/zip;
+          add_header Content-Disposition "attachment" always;
+          add_header Cache-Control "public, max-age=31536000, immutable" always;
+          try_files $uri =404;
+          if ($request_method != GET) { return 405; }
+        '';
+      };
+      locations."/world-of-sosal/" = {
+        extraConfig = ''
+          autoindex off;
+          limit_except GET {
+            deny all;
+          }
+          return 404;
         '';
       };
     };
