@@ -104,13 +104,27 @@ in {
       enable = true;
       memory = "3g";
       serverName = "servertest";
+      serverPropertiesFile = /var/lib/project-zomboid/server-password.ini;
       serverProperties = {
         Map = "map_distanciado;Muldraugh, KY";
         DoLuaChecksum = false;
         Public = true;
-        AntiCheatPermission = 3;
-        AntiCheatSpeed = 3;
-        AntiCheatHit = 3;
+        AntiCheatSafety = 4;
+        AntiCheatMovement = 4;
+        AntiCheatSpeed = 4;
+        AntiCheatHit = 4;
+        AntiCheatPacket = 4;
+        AntiCheatPacketException = 4;
+        AntiCheatPermission = 4;
+        AntiCheatXP = 4;
+        AntiCheatFire = 4;
+        AntiCheatSafeHouse = 4;
+        AntiCheatRecipe = 4;
+        AntiCheatPlayer = 4;
+        AntiCheatChecksum = 4;
+        AntiCheatItem = 4;
+        AntiCheatNoClip = 4;
+        AntiCheatServerCustomization = 4;
       };
       sandboxProperties = {
         StartMonth = 12;
@@ -130,7 +144,6 @@ in {
         "3676456221" # Lua Digital Watch Framework
         "3600401184" # Realistic Temperature Mod
         "3387824513" # Material Weight Reducer
-        "3543229299" # Project RV Interior
         "3387539308" # Auto Mechanics
         "3402491515" # Tsar's Common Library B42
         "3403490889" # Standardized Vehicle Upgrades 3 - Core
@@ -142,7 +155,6 @@ in {
         "3512708849" # Shotgun Trajectory
         "3401576145" # Firearm Models: Redux
         "3401134276" # Vanilla Gear Expanded
-        "3394044313" # Buttstroke / Gun Stock Attack
         "2956146279" # Rain Cleans Blood
         "3693258802" # Tactical Hold
         "3394588830" # Simple Flashlight on Belt
@@ -150,7 +162,6 @@ in {
         "2812326159" # Spongie's Open Jackets
       ];
       mods = [
-        "\\PROJECTRVInterior42"
         "\\Military_Tool_Kit"
         "\\CryogenicWinter2NormalMode"
         "\\LuaDigitalWatchUI"
@@ -167,7 +178,6 @@ in {
         "\\ShotgunTrajectory"
         "\\FMR"
         "\\VanillaGearExpanded"
-        "\\Buttstroke"
         "\\RainCleansBlood"
         "\\TacHold Complete"
         "\\LightOnBelt"
@@ -267,6 +277,22 @@ in {
       "s3-secret-key"
     ]);
   };
+
+  systemd.services.project-zomboid.preStart = lib.mkBefore ''
+    password_file=${lib.escapeShellArg "/var/lib/project-zomboid/server-password"}
+    properties_file=${lib.escapeShellArg "/var/lib/project-zomboid/server-password.ini"}
+
+    if [ ! -s "$password_file" ] || ! ${pkgs.gnugrep}/bin/grep -Eq '^[0-9a-f]{48}$' "$password_file"; then
+      umask 077
+      ${pkgs.openssl}/bin/openssl rand -hex 24 > "$password_file"
+    fi
+    ${pkgs.coreutils}/bin/chmod 0600 "$password_file"
+
+    properties_file_tmp="$(${pkgs.coreutils}/bin/mktemp "$(dirname "$properties_file")/.server-password.ini.XXXXXX")"
+    ${pkgs.coreutils}/bin/printf 'Password=%s\n' "$(<"$password_file")" > "$properties_file_tmp"
+    ${pkgs.coreutils}/bin/chmod 0600 "$properties_file_tmp"
+    ${pkgs.coreutils}/bin/mv "$properties_file_tmp" "$properties_file"
+  '';
 
   users.users.root.openssh.authorizedKeys.keys = [
     # neuro machine
@@ -390,6 +416,11 @@ in {
       };
       locations."= /world-of-sosal/" = {
         extraConfig = ''
+          return 302 /world-of-sosal/index.html;
+        '';
+      };
+      locations."= /world-of-sosal/index.html" = {
+        extraConfig = ''
           alias ${./static/world-of-sosal/index.html};
           default_type text/html;
           add_header Cache-Control "no-cache" always;
@@ -495,7 +526,7 @@ in {
     gitea = {
       enable = true;
       package = pkgs.hectic.gitea-heatmap;
-      settings.service.DISABLE_REGISTRATION = true;
+      settings.service.DISABLE_REGISTRATION = false;
       settings.actions.ENABLED = true;
       # Long CUDA builds must not hit Gitea's default three-hour task watchdog.
       settings.actions.ENDLESS_TASK_TIMEOUT = "8h";
