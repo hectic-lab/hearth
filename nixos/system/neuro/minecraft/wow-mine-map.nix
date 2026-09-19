@@ -22,7 +22,26 @@
     hostPublicKey = "ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEA5EB5p/5Hp3hGW1oHok+PIOH9Pbn7cnUiGmUEBrCVjnAw+HrKyN8bYVV0dIGllswYXwkG/+bgiBlE6IVIBAq+JwVWu1Sss3KarHY3OvFJUXZoZyRRg/Gc/+LRCE7lyKpwWQ70dbelGRyyJFH36eNv6ySXoUYtGkwlU5IVaHPApOxe4LHPZa/qhSRbPo2hwoh0orCtgejRebNtW5nlx00DNFgsvn8Svz2cIYLxsPVzKgUxs8Zxsxgn+Q/UvR7uq4AbAhyBMLxv7DjJ1pc7PJocuTno2Rw9uMZi1gkjbnmiOh6TTXIEWbnroyIhwc8555uto9melEUmWNQ+C+PwAK+MPw==";
   };
 
+  sops.secrets."minecraft/rcon-password" = {
+    sopsFile = ../../../../sus/neuro-minecraft.yaml;
+    owner = "minecraft";
+    group = "minecraft";
+    mode = "0400";
+    restartUnits = [ "minecraft-server-wowMineMap.service" ];
+  };
+
+  # The module's automatic firewall would also expose RCON.
+  networking.firewall.allowedTCPPorts = [ 25567 ];
   services.minecraft-servers.servers.wowMineMap = {
+    openFirewall = false;
+    extraStartPre = ''
+      chmod 600 server.properties
+      {
+        printf '\nrcon.password='
+        cat ${config.sops.secrets."minecraft/rcon-password".path}
+        printf '\n'
+      } >> server.properties
+    '';
     enable = true;
     jvmOpts = "-Xmx8G -Xms2G";
     # WorldOfSosal client and server use the same pinned NeoForge.
@@ -33,7 +52,9 @@
     serverProperties = {
       server-port = 25567;
       difficulty = "hard";
-      online-mode = true;
+      online-mode = false;
+      enable-rcon = true;
+      "rcon.port" = 25575;
       view-distance = 12;
       simulation-distance = 8;
       motd = "WorldOfSosal — World of Warcraft";

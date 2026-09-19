@@ -27,7 +27,7 @@ def main():
     scripts = Path(__file__).resolve().parent
     mirrors = [
         ('hectic-lab', 'https://store.hectic-lab.com/minecraft/world-of-sosal/', 'store.hectic-lab.com:25568'),
-        ('bfs.poland.xray', 'https://bfs.band/minecraft/world-of-sosal/', 'bfs.band:25568'),
+        ('bfs.poland.xray', 'https://store.bfs.band/minecraft/world-of-sosal/', 'wow.bfs.band'),
     ]
     with tempfile.TemporaryDirectory(prefix='prism-mirrors-') as temporary:
         root = Path(temporary)

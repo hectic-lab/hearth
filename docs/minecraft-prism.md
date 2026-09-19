@@ -1,7 +1,7 @@
 # WorldOfSosal: Prism automatic updates
 
 The published client entry points are:
-- https://bfs.band/minecraft/ (BFS / Element host)
+- https://store.bfs.band/minecraft/ (BFS / Element host)
 - https://store.hectic-lab.com/minecraft/world-of-sosal/ (hectic-lab)
 
 Each site provides its own Prism ZIP with that site's update URL and matching
@@ -95,8 +95,8 @@ Both services and firewall rules are in Nix and start on boot. The SSH client
 uses an explicit AES-CTR / HMAC-SHA256-ETM / curve25519 transport profile with
 IPQoS=none, tested on the neuro-to-lab route. The default profile stalled after
 the handshake on this route. Both ends check peer liveness so stale listeners
-are eventually released. Minecraft retains
-`online-mode=true`, requiring normal authenticated Minecraft accounts.
+are eventually released. Minecraft initially used `online-mode=true`. It now uses offline mode at the
+owner's request; see the RCON and authentication section below.
 
 For a temporary direct local tunnel, use:
 
@@ -156,22 +156,22 @@ SHA-256 was verified before extraction.
 
 ## Independent BFS entry point (2026-09-19)
 
-- Server: `bfs.band:25568`; downloads: https://bfs.band/minecraft/.
+- Server: `wow.bfs.band`; downloads: https://store.bfs.band/minecraft/.
 - BFS is `bfs.poland.xray` (91.198.166.181), the host of Element.
 - `minecraft-wow-tunnel-bfs` connects neuro directly to BFS. The BFS path does
   not transit hectic-lab; both tunnels have independent reconnecting services.
 - Shared proxy implementation: `nixos/module/generic/minecraft-public-relay.nix`.
   Host settings remain in `minecraft-wow-proxy.nix` (hectic-lab) and
-  `minecraft-wow.nix` (BFS). Only `/minecraft/` is added to the existing BFS
-  nginx virtual host; Element/Matrix routes remain intact.
-- Downloaded BFS ZIP seeds `bfs.band:25568` and uses the stable manifest
-  `https://bfs.band/minecraft/world-of-sosal/current/pack.toml`. It does not
+  `minecraft-wow.nix` (BFS). A dedicated HTTPS virtual host serves `store.bfs.band`. The legacy
+  `bfs.band/minecraft/` URLs remain available for already imported instances.
+- Downloaded BFS ZIP seeds `wow.bfs.band` and uses the stable manifest
+  `https://store.bfs.band/minecraft/world-of-sosal/current/pack.toml`. It does not
   redirect installation metadata to hectic-lab. Upstream mod and Java/loader
   downloads still use their original providers (e.g. Modrinth, GitHub, Mojang).
 - Existing hectic-lab instances can be migrated without reinstalling mods:
   in Edit / Settings / Custom commands, replace only the manifest URL in
   Pre-launch command with the BFS URL above. Change the multiplayer server
-  address to bfs.band:25568. New users should import the ZIP from BFS.
+  address to wow.bfs.band. New users should import the ZIP from BFS.
 - `script/publish-prism-mirrors.py` builds host-specific ZIPs from one archive
   and publishes both mirrors. It checks that the running neuro server's cached
   archive has the same SHA-256. Each host's switch is atomic; publication across
@@ -183,3 +183,49 @@ Clean installation through the BFS manifest passed: all 141 client mods and
 all overrides match the source archive. A second updater run performed no
 downloads and preserved options.txt. The public BFS login protocol reached
 online authentication; the earlier full GUI login used hectic-lab.
+
+## BFS DNS and dedicated download site (2026-09-19)
+
+Porkbun DNS, TTL 600:
+
+| Type | Name | Value |
+| --- | --- | --- |
+| A | store.bfs.band | 91.198.166.181 |
+| A | wow.bfs.band | 91.198.166.181 |
+| SRV | _minecraft._tcp.wow.bfs.band | 0 0 25568 wow.bfs.band |
+
+Players enter `wow.bfs.band` without a port in Minecraft Java. In Porkbun,
+SRV Priority is `0`, and Target is `0 25568 wow.bfs.band` (weight, port, host).
+The root download URL https://store.bfs.band/ redirects to the WorldOfSosal page.
+The NixOS virtual host obtains and renews its HTTPS certificate automatically.
+The publication script now seeds this update URL and the port-free game address.
+Existing BFS instances retain working legacy update URLs; switching their
+pre-launch manifest to the new store host is optional. Root bfs.band remains
+the existing Element entry point.
+
+## RCON and authentication (2026-09-19)
+
+The WoW server now has `online-mode=false`. Account authentication is disabled;
+player names can be impersonated, and offline UUIDs differ from online UUIDs.
+Existing inventory/permissions may require a separate UUID migration.
+
+RCON listens on TCP 25575 on neuro; its port is not opened in the firewall or
+forwarded through the public Minecraft relays. The server-specific automatic
+firewall is disabled and only game port 25567 is explicitly permitted.
+A random password is stored in SOPS as `minecraft/rcon-password`, injected into
+server.properties at startup with mode 0600, and is absent from the Nix store.
+
+Start a local-only SSH tunnel and leave it running:
+
+```sh
+ssh -NT -L 127.0.0.1:25575:127.0.0.1:25575 -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 neuro
+```
+
+Retrieve the password in another terminal (do not paste it into logs):
+
+```sh
+ssh neuro cat /run/secrets/minecraft/rcon-password
+```
+
+Configure the RCON client with host `127.0.0.1`, port `25575`, and that password.
+There is no RCON username. These changes apply to wowMineMap only.
