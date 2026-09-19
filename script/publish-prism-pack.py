@@ -46,4 +46,4 @@ mv -Tf "$stage/current" "$base/current"
 echo "Published $release"
 '''.replace('RELEASE', release)
     subprocess.run(['ssh', '-o', 'BatchMode=yes', host, 'sh', '-s'], input=script, text=True, check=True)
-print('https://store.hectic-lab.com/minecraft/world-of-sosal/')
+print(f'Published client files on {host}:/var/www/store/minecraft/world-of-sosal')

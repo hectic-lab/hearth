@@ -16,6 +16,7 @@
   matrixClusterSopsFile = flake + "/sus/matrix-cluster.yaml";
 in {
   imports = [
+    ./minecraft-wow.nix
     self.nixosModules.xray-system
     self.nixosModules.matrix-cluster
     self.nixosModules.matrix-cluster-users

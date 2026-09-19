@@ -1,7 +1,11 @@
 # WorldOfSosal: Prism automatic updates
 
-The published client entry point is:
-https://store.hectic-lab.com/minecraft/world-of-sosal/
+The published client entry points are:
+- https://bfs.band/minecraft/ (BFS / Element host)
+- https://store.hectic-lab.com/minecraft/world-of-sosal/ (hectic-lab)
+
+Each site provides its own Prism ZIP with that site's update URL and matching
+server address. Both installs use the same Minecraft world and modpack release.
 
 Players import `WorldOfSosal-Prism.zip` into Prism once and approve its pre-launch
 command. Before each launch, packwiz-installer reconciles the client with the
@@ -23,14 +27,12 @@ client export must consume the same archive; publishing only the client can make
 it incompatible with the running server.
 
 ```sh
-python3 script/build-prism-pack.py WorldOfSosal.mrpack /tmp/world-of-sosal-release \
-  --server store.hectic-lab.com:25568
 # Test the client and deploy the matching server release first.
-python3 script/publish-prism-pack.py /tmp/world-of-sosal-release hectic-lab
+python3 script/publish-prism-mirrors.py WorldOfSosal.mrpack
 ```
 
-Use a new output directory for each build. Omit `--server` until the destination
-server is chosen. The builder downloads a SHA-256-pinned bootstrap from the
+The mirror publisher creates temporary build directories and sets each server
+address and update URL automatically. The builder downloads a SHA-256-pinned bootstrap from the
 packwiz project's release, or accepts it via `--bootstrap /path/to/file.jar`.
 External mods retain their original URLs and SHA-512 checksums. Embedded mods and
 configuration are hosted with the release. Both required and optional client mods
@@ -151,3 +153,33 @@ SHA-256 was verified before extraction.
   again automatically deleted it. Existing files were reused from cache, and
   options.txt retained its checksum. The production pack contents were unchanged.
 - Restored the instance's regular current/pack.toml update URL.
+
+## Independent BFS entry point (2026-09-19)
+
+- Server: `bfs.band:25568`; downloads: https://bfs.band/minecraft/.
+- BFS is `bfs.poland.xray` (91.198.166.181), the host of Element.
+- `minecraft-wow-tunnel-bfs` connects neuro directly to BFS. The BFS path does
+  not transit hectic-lab; both tunnels have independent reconnecting services.
+- Shared proxy implementation: `nixos/module/generic/minecraft-public-relay.nix`.
+  Host settings remain in `minecraft-wow-proxy.nix` (hectic-lab) and
+  `minecraft-wow.nix` (BFS). Only `/minecraft/` is added to the existing BFS
+  nginx virtual host; Element/Matrix routes remain intact.
+- Downloaded BFS ZIP seeds `bfs.band:25568` and uses the stable manifest
+  `https://bfs.band/minecraft/world-of-sosal/current/pack.toml`. It does not
+  redirect installation metadata to hectic-lab. Upstream mod and Java/loader
+  downloads still use their original providers (e.g. Modrinth, GitHub, Mojang).
+- Existing hectic-lab instances can be migrated without reinstalling mods:
+  in Edit / Settings / Custom commands, replace only the manifest URL in
+  Pre-launch command with the BFS URL above. Change the multiplayer server
+  address to bfs.band:25568. New users should import the ZIP from BFS.
+- `script/publish-prism-mirrors.py` builds host-specific ZIPs from one archive
+  and publishes both mirrors. It checks that the running neuro server's cached
+  archive has the same SHA-256. Each host's switch is atomic; publication across
+  two hosts is sequential, so rerun the command if it exits unsuccessfully.
+- Both configurations were deployed; public Minecraft status/ping succeeds
+  on BFS (~125 ms), HTTPS serves the pack, and Element/Matrix HTTP checks pass.
+
+Clean installation through the BFS manifest passed: all 141 client mods and
+all overrides match the source archive. A second updater run performed no
+downloads and preserved options.txt. The public BFS login protocol reached
+online authentication; the earlier full GUI login used hectic-lab.
