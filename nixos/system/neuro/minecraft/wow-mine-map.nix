@@ -2,7 +2,7 @@
 
 {
   sops.secrets."minecraft/storage-box-key" = {
-    sopsFile = ../../../../sus/neuro.yaml;
+    sopsFile = ../../../../sus/neuro-minecraft.yaml;
     owner = "minecraft-map-import-wowMineMap";
     group = "minecraft-map-import-wowMineMap";
     mode = "0400";
@@ -25,15 +25,18 @@
   services.minecraft-servers.servers.wowMineMap = {
     enable = true;
     jvmOpts = "-Xmx8G -Xms2G";
-    package = pkgs.minecraftServers.neoforge-1_21_1;
-
-    symlinks.mods = import ./mods.nix { inherit pkgs; };
+    # WorldOfSosal client and server use the same pinned NeoForge.
+    package = pkgs.minecraftServers.neoforge-1_21_1.override (
+      builtins.fromJSON (builtins.readFile ./neoforge-21.1.250.json)
+    );
 
     serverProperties = {
       server-port = 25567;
       difficulty = "hard";
       online-mode = true;
-      view-distance = 20;
+      view-distance = 12;
+      simulation-distance = 8;
+      motd = "WorldOfSosal — World of Warcraft";
       level-name = "world";
       pause-when-empty-seconds = 0;
     };

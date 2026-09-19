@@ -1,3 +1,17 @@
+# Current Minecraft access (2026-09-18)
+
+WorldOfSosal on the WoW map uses `store.hectic-lab.com:25568` publicly.
+The game server is `neuro:25567`; a restricted persistent reverse SSH tunnel
+connects it to the public relay. See `docs/minecraft-prism.md` and the Nix modules
+`minecraft/public-tunnel.nix` / `hectic-lab/minecraft-wow-proxy.nix`.
+
+Verified LAN: neuro is `192.168.88.10`, gateway `192.168.88.1`.
+SSH access is `95.31.254.84:34457`. Direct external Minecraft TCP probes timed out,
+and no UPnP IGD was discovered. The old TP-Link network and manual port-forward
+instructions below describe the previous network, not the active configuration.
+
+---
+
 # Router Access (TP-Link)
 
 The server `neuro` is behind a NAT router at `192.168.0.1`.

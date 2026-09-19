@@ -76,7 +76,7 @@
         RestrictSUIDSGID = true;
         LockPersonality = true;
         CapabilityBoundingSet = [ "" ];
-         ReadWritePaths = [ import.cacheDir serverDir ];
+        ReadWritePaths = [ import.cacheDir serverDir ];
         UMask = "0007";
       } // lib.optionalAttrs (stateDirectoryCompatible import.cacheDir) {
         StateDirectory = cacheStateDirectory;
@@ -119,13 +119,15 @@
 
         archive_entries_valid() {
           lsar -json "$archive" | jq -e '
-            (.entries | type == "array")
-            and (.entries | all(.[];
-                (.XADPath | type == "string")
-                and (.XADPath | startswith("/") | not)
-                and (.XADPath | contains("\\") | not)
-                and (.XADPath | test("[[:cntrl:]]") | not)
-                and ([.XADPath | split("/")[] | select(. == "" or . == "." or . == "..")] | length == 0)
+            (.lsarContents // .entries) as $entries
+            | ($entries | type == "array")
+            and ($entries | all(.[];
+                (.XADFileName // .XADPath) as $path
+                | ($path | type == "string")
+                and ($path | startswith("/") | not)
+                and ($path | contains("\\") | not)
+                and ($path | test("[[:cntrl:]]") | not)
+                and ([$path | split("/")[] | select(. == "" or . == "." or . == "..")] | length == 0)
                 and ((.XADIsSymbolicLink // false) | not)
                 and ((.XADIsHardLink // false) | not)
                 and ((.XADIsDevice // false) | not)
@@ -260,10 +262,26 @@
           done >> "$new_managed_paths"
         fi
 
-        existing_symlink=$(find "$server_dir" -type l -print -quit)
-        if [ -n "$existing_symlink" ]; then
-          echo "Minecraft server directory contains symlink: $existing_symlink" >&2
-          exit 1
+        # Nix Minecraft manages eula.txt via a symlink. Only reject symlinks
+        # in destinations we actually touch, including their parent directories.
+        safe_target_path() {
+          safe_relative_path "$1" || return 1
+          target="$server_dir/$1"
+          while [ "$target" != "$server_dir" ]; do
+            if [ -L "$target" ]; then
+              echo "Modpack destination contains symlink: $target" >&2
+              return 1
+            fi
+            target=$(dirname "$target")
+          done
+        }
+        while IFS= read -r relative; do
+          safe_target_path "$relative" || exit 1
+        done < "$new_managed_paths"
+        if [ -f "$managed_paths" ]; then
+          while IFS= read -r relative; do
+            safe_target_path "$relative" || exit 1
+          done < "$managed_paths"
         fi
 
         while IFS= read -r relative; do

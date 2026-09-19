@@ -12,6 +12,13 @@ keys:
   - &umbriel-bfs       age1jxntjca8q2vxvf2jaal4xyvm2ae6sh62fhv897694kuzawfrk5asj00zdt
 
 creation_rules:
+  - path_regex: sus/neuro-minecraft.yaml$
+    key_groups:
+      - age:
+        - age1r25zdeqq8nac6dgca9en28r57ffyz9u9d8z5yc25gc8xqz747vaqmdtk0h
+        - age1ak7heljpr0pjr4m0rcwxgn3sp0jjxw03lxyf33r8lcemqh2u2sgqx0aplq
+        - age1ev53mzse6rg4ffwtcwtq4e93c7x7s4d0eyu89jrsahrke8r4yamsseu8h4
+
   - path_regex: sus/home.xray.yaml$
     key_groups:
       - age:

@@ -64,6 +64,7 @@ in {
     (import ./attic.nix              { inherit flake self inputs domain; })
     (import ./containers.nix          { inherit flake self inputs; })
     ./experimental-sshd.nix
+    ./minecraft-wow-proxy.nix
     (import ./ente.nix               { inherit domain; })
     (import ./immich.nix             { inherit domain; })
     (import ./mechabellum.nix         { inherit flake self inputs domain; })
@@ -106,7 +107,7 @@ in {
       serverName = "servertest";
       serverPropertiesFile = /var/lib/project-zomboid/server-password.ini;
       serverProperties = {
-        Map = "map_distanciado;Muldraugh, KY";
+        Map = "vehicle_interior_arcadia75;Muldraugh, KY";
         DoLuaChecksum = false;
         Public = true;
         AntiCheatSafety = 4;
@@ -140,18 +141,12 @@ in {
         };
       };
       workshopItems = [
+        "3773972040" # Arcadia RV Interiors B42.20
         "2210760610" # Cryogenic Winter +Easy/Hard Modes
         "3676456221" # Lua Digital Watch Framework
         "3600401184" # Realistic Temperature Mod
         "3387824513" # Material Weight Reducer
-        "3387539308" # Auto Mechanics
-        "3402491515" # Tsar's Common Library B42
-        "3403490889" # Standardized Vehicle Upgrades 3 - Core
-        "3520758551" # More Car Features + Spawn Zones Expansion
-        "3110911330" # '87 Ford B700/F700 Trucks
         "3413150945" # More Damaged Objects
-        "3554424111" # U.S. M998 Humvee
-        "2705406713" # Military Tool Kit
         "3512708849" # Shotgun Trajectory
         "3401576145" # Firearm Models: Redux
         "3401134276" # Vanilla Gear Expanded
@@ -162,19 +157,14 @@ in {
         "2812326159" # Spongie's Open Jackets
       ];
       mods = [
-        "\\Military_Tool_Kit"
+        "\\ArcadiaRVInterior_B42_MP"
+        "\\ArcadiaRVInterior_B42_Vanilla"
         "\\CryogenicWinter2NormalMode"
         "\\LuaDigitalWatchUI"
         "\\RC_RealisticColdMod"
         "\\Material Weight Reducer"
         "\\Ammunition Weight Reducer"
-        "\\AutoMechanics"
-        "\\tsarslib"
-        "\\StandardizedVehicleUpgrades3Core"
-        "\\WayMoreCars"
-        "\\87fordB700"
         "\\MoreDamagedObjects"
-        "\\U.S. M998 Humvee by Papa_Chad"
         "\\ShotgunTrajectory"
         "\\FMR"
         "\\VanillaGearExpanded"

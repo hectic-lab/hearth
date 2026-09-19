@@ -93,8 +93,8 @@
 
         mkdir -p "$cache_dir" "$server_dir"
         chmod 0700 "$cache_dir"
-        chgrp minecraft "$server_dir"
-        chmod 0770 "$server_dir"
+        # The Minecraft module creates server_dir as minecraft:minecraft
+        # with group write access; this importer must not chmod another user's directory.
 
         if [ -d "$world_dir" ]; then
           if [ -f "$world_dir/level.dat" ]; then
