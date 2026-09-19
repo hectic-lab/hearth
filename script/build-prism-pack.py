@@ -104,7 +104,8 @@ def main():
     tomllib.loads(pack)
     (root / 'pack.toml').write_text(pack)
     (args.output / 'latest.mrpack').write_bytes(archive)
-    cfg = '\n'.join(['[General]', 'InstanceType=OneSix', 'name=WorldOfSosal Auto Update', 'iconKey=default', 'OverrideCommands=true', 'PreLaunchCommand=' + quote(f'"$INST_JAVA" -jar packwiz-installer-bootstrap.jar {base}current/pack.toml'), 'OverrideMemory=true', 'MinMemAlloc=1024', 'MaxMemAlloc=8192', ''])
+    # Prism otherwise uses its legacy INI parser and corrupts quoted commands.
+    cfg = '\n'.join(['[General]', 'ConfigVersion=1.2', 'InstanceType=OneSix', 'name=WorldOfSosal Auto Update', 'iconKey=default', 'OverrideCommands=true', 'PreLaunchCommand=' + quote(f'"$INST_JAVA" -jar packwiz-installer-bootstrap.jar {base}current/pack.toml'), 'OverrideMemory=true', 'MinMemAlloc=1024', 'MaxMemAlloc=8192', ''])
     mmc = {'formatVersion': 1, 'components': [{'uid':'net.minecraft', 'version':deps['minecraft'], 'important':True}, {'uid':'net.neoforged', 'version':deps['neoforge'], 'important':True}]}
     def nbt_string(value):
         data = value.encode()

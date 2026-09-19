@@ -65,7 +65,7 @@ client pack. packwiz-installer 0.5.14 understands NeoForge components in Prism's
   matching the same archive used for the Prism client.
 - Public `store.hectic-lab.com:25568` status/ping succeeded (about 111 ms);
   a login handshake reached the online authentication encryption request.
-  An authenticated in-game session has not been tested.
+  An authenticated Windows Prism session was subsequently verified on 2026-09-19 (see below).
 - Server and tunnel are enabled at boot; relay and both NixOS configurations
   are deployed. No failed systemd units remain on neuro.
 - Loader package `neoforge-1.21.1-21.1.250` built successfully in Nix.
@@ -131,3 +131,23 @@ every recipe or RPG class feature works correctly.
 The imported map metadata is `wow mine`, DataVersion 3953 (Minecraft 1.21),
 spawn 0 / 68 / -32; extracted size is approximately 11.7 GiB. The archive
 SHA-256 was verified before extraction.
+
+## Windows Prism GUI verification on 2026-09-19
+
+- Downloaded the published ZIP through the browser and imported it in Prism 8.4.
+- Fixed the generated instance.cfg: ConfigVersion=1.2 is required. Without it,
+  Prism selects its legacy INI parser and corrupts the quoted pre-launch command.
+  The corrected ZIP is published at the same URL. Previously imported copies
+  need the command corrected in Settings / Custom commands, or a fresh import.
+- Used Java 21.0.4; the first packwiz download hit two transient timeouts.
+  Cancelled the incomplete launch and retried successfully. All 141 downloaded
+  client mod hashes match the original mrpack. NeoForge reports 202 mods when
+  bundled/internal mod components are included.
+- Joined store.hectic-lab.com:25568 in the actual Minecraft GUI. The server
+  confirmed the authenticated join, and the client reached the Origins selection
+  screen. No character origin was selected during testing.
+- Tested a separate copy of the pack manifest with an inert config text file:
+  launching from Prism added it; restoring the production manifest and launching
+  again automatically deleted it. Existing files were reused from cache, and
+  options.txt retained its checksum. The production pack contents were unchanged.
+- Restored the instance's regular current/pack.toml update URL.
