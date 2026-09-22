@@ -43,7 +43,7 @@
       } >> server.properties
     '';
     enable = true;
-    jvmOpts = "-Xmx8G -Xms2G";
+    jvmOpts = "-Xmx24G -Xms2G";
     # WorldOfSosal client and server use the same pinned NeoForge.
     package = pkgs.minecraftServers.neoforge-1_21_1.override (
       builtins.fromJSON (builtins.readFile ./neoforge-21.1.250.json)

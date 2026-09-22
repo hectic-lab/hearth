@@ -106,8 +106,14 @@ in {
       memory = "3g";
       serverName = "servertest";
       serverPropertiesFile = /var/lib/project-zomboid/server-password.ini;
+      backup = {
+        enable = true;
+        onCalendar = "*:0/30";
+        retentionDays = 14;
+        s3.enable = false;
+      };
       serverProperties = {
-        Map = "vehicle_interior_arcadia75;Muldraugh, KY";
+        Map = "Muldraugh, KY";
         DoLuaChecksum = false;
         Public = true;
         AntiCheatSafety = 4;
@@ -127,55 +133,43 @@ in {
         AntiCheatNoClip = 4;
         AntiCheatServerCustomization = 4;
       };
-      sandboxProperties = {
-        StartMonth = 12;
-        StartDay = 1;
-        WaterShut = 3;
-        WaterShutModifier = 60;
-        ElecShut = 3;
-        ElecShutModifier = 60;
-        MinutesPerPage = 0.5;
-        ZombieLore = {
-          Transmission = 4;
-          Mortality = 7;
-        };
-      };
       workshopItems = [
-        "3773972040" # Arcadia RV Interiors B42.20
-        "2210760610" # Cryogenic Winter +Easy/Hard Modes
         "3676456221" # Lua Digital Watch Framework
         "3600401184" # Realistic Temperature Mod
-        "3387824513" # Material Weight Reducer
-        "3413150945" # More Damaged Objects
-        "3512708849" # Shotgun Trajectory
-        "3401576145" # Firearm Models: Redux
-        "3401134276" # Vanilla Gear Expanded
-        "2956146279" # Rain Cleans Blood
-        "3693258802" # Tactical Hold
-        "3394588830" # Simple Flashlight on Belt
-        "2684285534" # Spongie's Clothing
-        "2812326159" # Spongie's Open Jackets
       ];
       mods = [
-        "\\ArcadiaRVInterior_B42_MP"
-        "\\ArcadiaRVInterior_B42_Vanilla"
-        "\\CryogenicWinter2NormalMode"
         "\\LuaDigitalWatchUI"
         "\\RC_RealisticColdMod"
-        "\\Material Weight Reducer"
-        "\\Ammunition Weight Reducer"
-        "\\MoreDamagedObjects"
-        "\\ShotgunTrajectory"
-        "\\FMR"
-        "\\VanillaGearExpanded"
-        "\\RainCleansBlood"
-        "\\TacHold Complete"
-        "\\LightOnBelt"
-        "\\SpnCloth"
-        "\\SpnOpenClothBase"
-        "\\SpnOpenCloth"
       ];
+    sandboxProperties = {
+      StartMonth = 12;
+      StartDay = 1;
+      WaterShut = 3;
+      WaterShutModifier = 150;
+      ElecShut = 3;
+      ElecShutModifier = 150;
+      MinutesPerPage = 0.5;
+      Zombies = 4;
+      ZombieConfig = {
+        PopulationMultiplier = 1.3;
+        PopulationStartMultiplier = 1.0;
+        PopulationPeakMultiplier = 1.0;
+        RespawnHours = 0.0;
+        RespawnUnseenHours = 0.0;
+        RespawnMultiplier = 0.0;
+        RedistributeHours = 0.0;
+      };
+      ZombieLore = {
+        Transmission = 4;
+        Mortality = 7;
+        Speed = 2;
+        SprinterPercentage = 0;
+        Strength = 2;
+        Cognition = 2;
+        DoorOpeningPercentage = 10;
+      };
     };
+  };
     services.p4d = {
       enable = true;
       package = pkgs.p4d;
@@ -253,8 +247,8 @@ in {
         key = "init-postgresql";
       };
       "atticd/environment" = {};
-      "immich/storage-box" = {};
-      "wg-bfs/private-key" = {};
+       "immich/storage-box" = {};
+       "wg-bfs/private-key" = {};
       "gitea-runner/org-registration-token" = {
         sopsFile = flake + "/sus/gitea-runners.yaml";
         key      = "gitea/hectic-lab/org-runner-registration-token";

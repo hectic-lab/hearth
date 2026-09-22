@@ -17,10 +17,12 @@ in self.lib.nixpkgs-lib.nixosSystem {
     ];
     config.allowUnfreePredicate = pkg:
       self.lib.cudaUnfreePredicate pkg || builtins.elem (self.lib.nixpkgs-lib.getName pkg) [
-      "minecraft-server"
-      "neoforge"
+       "minecraft-server"
+       "neoforge"
+       "steamcmd"
+       "steam-unwrapped"
 
-      "nvidia-x11"
+       "nvidia-x11"
     ];
     # jitsi-meet depends on libolm which is marked insecure (CVE-2024-4519x)
     config.permittedInsecurePackages = [

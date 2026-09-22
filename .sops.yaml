@@ -6,7 +6,7 @@ keys:
   - &bfs-server        age15yzgmsvl3ku2w863h6gw2vpmw37m9aruv6xrj4fue6n2jpm7pyuqk9xjmj
   - &bfs-pol-server    age1fpytf05sg9n6ywpwkmn09lhpfvgtud9h75h76jhxha475zpnasqq952rpu
   - &bfs-new-server    age17yx98qk9gzgcf2q6zhhp05p6mmtrkgz66dvyk9gqclypvlr8rersxjy5v7
-  - &neuro-server      age15yzgmsvl3ku2w863h6gw2vpmw37m9aruv6xrj4fue6n2jpm7pyuqk9xjmj
+  - &neuro-server      age1ak7heljpr0pjr4m0rcwxgn3sp0jjxw03lxyf33r8lcemqh2u2sgqx0aplq
   - &games-server      age15yzgmsvl3ku2w863h6gw2vpmw37m9aruv6xrj4fue6n2jpm7pyuqk9xjmj
   - &hectic-lab-server age13h8twnwvgxn04l5ywtru89a6psw5d0uckr2eghxsjp88a5augvsstq5ard
   - &umbriel-bfs       age1jxntjca8q2vxvf2jaal4xyvm2ae6sh62fhv897694kuzawfrk5asj00zdt

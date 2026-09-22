@@ -139,7 +139,7 @@ in {
   };
 
   services.nginx = {
-    enable = true;
+    enable = false;
     virtualHosts."bfs.band" = let
       site = pkgs.runCommand "bfs-band-site" {} ''
         mkdir -p $out
@@ -223,6 +223,70 @@ in {
     archetype.base.enable = true;
     archetype.dev.enable  = true;
   };
+
+  hectic.services."project-zomboid" = {
+    enable = true;
+    memory = "8g";
+    serverName = "servertest";
+    serverPropertiesFile = /var/lib/project-zomboid/server-password.ini;
+    serverProperties = {
+      Map = "Muldraugh, KY";
+      DoLuaChecksum = false;
+      Public = true;
+      AntiCheatSafety = 4;
+      AntiCheatMovement = 4;
+      AntiCheatSpeed = 4;
+      AntiCheatHit = 4;
+      AntiCheatPacket = 4;
+      AntiCheatPacketException = 4;
+      AntiCheatPermission = 4;
+      AntiCheatXP = 4;
+      AntiCheatFire = 4;
+      AntiCheatSafeHouse = 4;
+      AntiCheatRecipe = 4;
+      AntiCheatPlayer = 4;
+      AntiCheatChecksum = 4;
+      AntiCheatItem = 4;
+      AntiCheatNoClip = 4;
+      AntiCheatServerCustomization = 4;
+    };
+    workshopItems = [
+      "3676456221" # Lua Digital Watch Framework
+      "3600401184" # Realistic Temperature Mod
+    ];
+    mods = [
+      "\\LuaDigitalWatchUI"
+      "\\RC_RealisticColdMod"
+    ];
+    sandboxProperties = {
+      Zombies = 6;
+      ZombieConfig = {
+        PopulationMultiplier = 0.0;
+        PopulationStartMultiplier = 0.0;
+        PopulationPeakMultiplier = 0.0;
+        RespawnHours = 0.0;
+        RespawnUnseenHours = 0.0;
+        RespawnMultiplier = 0.0;
+        RedistributeHours = 0.0;
+      };
+    };
+  };
+
+  systemd.services.project-zomboid.preStart = lib.mkBefore ''
+    password_file=${lib.escapeShellArg "/var/lib/project-zomboid/server-password"}
+    properties_file=${lib.escapeShellArg "/var/lib/project-zomboid/server-password.ini"}
+
+    if [ ! -s "$password_file" ] || ! ${pkgs.gnugrep}/bin/grep -Eq '^[0-9a-f]{48}$' "$password_file"; then
+      umask 077
+      ${pkgs.openssl}/bin/openssl rand -hex 24 > "$password_file"
+    fi
+    ${pkgs.coreutils}/bin/chmod 0600 "$password_file"
+
+    properties_file_tmp="$( ${pkgs.coreutils}/bin/mktemp "$(dirname "$properties_file")/.server-password.ini.XXXXXX")"
+    ${pkgs.coreutils}/bin/printf 'Password=%s\n' "$(<"$password_file")" > "$properties_file_tmp"
+    ${pkgs.coreutils}/bin/chmod 0600 "$properties_file_tmp"
+    ${pkgs.coreutils}/bin/mv "$properties_file_tmp" "$properties_file"
+  '';
 
   sops = {
     gnupg.sshKeyPaths         = [ ];

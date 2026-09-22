@@ -1,6 +1,8 @@
 # Documentation
 
 - [Using the `hectic` Attic Cache](./attic-cache.md)
+- [Minecraft incident log](./minecraft-incidents.md)
+- [Project Zomboid backups](./project-zomboid-backups.md)
 
 ## Gitea runner labels
 
