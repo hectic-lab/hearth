@@ -3,22 +3,24 @@
 `hectic.services."project-zomboid".backup` creates local backups without stopping
 or pausing the server. The default schedule is every 30 minutes. Each run:
 
-1. rsyncs `Zomboid/Saves/Multiplayer/<serverName>` and non-secret server
+1. sends the local RCON `save` command and waits for the configured save grace
+   period;
+2. rsyncs `Zomboid/Saves/Multiplayer/<serverName>` and non-secret server
    settings (`SandboxVars`, spawn-points, and spawn-regions) from
    `Zomboid/Server` into a private staging tree;
-2. waits five seconds and repeats the rsync to narrow the live-write window;
-3. publishes a timestamped `tar.zst` archive; and
-4. deletes local archives older than `backup.retentionDays`.
+3. waits five seconds and repeats the rsync to narrow the live-write window;
+4. publishes a timestamped `tar.zst` archive; and
+5. deletes local archives older than `backup.retentionDays`.
 
 The service lock prevents overlapping runs. Missing save or server-config paths
 skip the run through systemd `ConditionPathExists` checks.
 
 ## Consistency and secrets
 
-This is a best-effort, crash-consistent backup. It does not stop Project
-Zomboid and does not use an atomic filesystem snapshot. A backup taken during a
-busy save can therefore contain files from slightly different moments; the
-second rsync reduces but cannot remove this risk.
+This is a best-effort backup. It does not stop Project Zomboid and does not use
+an atomic filesystem snapshot. The RCON save command flushes the world before
+copying, and the second rsync narrows the remaining live-write window, but
+neither makes the filesystem copy an atomic snapshot.
 
 Archives do not include the generated server INI, `admin-password`,
 host-generated password files, or the S3 credentials file. The server INI is
@@ -41,12 +43,17 @@ systemctl status project-zomboid-backup.service
 journalctl -u project-zomboid-backup.service
 ```
 
+RCON is enabled on localhost port `27015`; the firewall does not expose this
+port. The password is generated at
+`/var/lib/project-zomboid/rcon-password` with mode `0600`. The server also uses
+`SaveWorldEveryMinutes=15` as a periodic persistence fallback.
+
 ## Optional S3 upload
 
 S3 upload is disabled by default. Enabling it requires `bucket`, `endpoint`,
 `region`, and an absolute runtime `credentialsFile` outside `/nix/store`. The
 endpoint must use HTTPS. systemd reads the environment file without executing
-it; keep it root-owned and mode `0400`:
+it; this host keeps it owned by `project-zomboid` with mode `0400`:
 
 ```sh
 AWS_ACCESS_KEY_ID=...
@@ -63,6 +70,18 @@ available; it remains the stronger recovery and cleanup control.
 
 Restoring must be done while the server is stopped so it cannot modify files
 during extraction:
+
+The versioned helper creates a fresh current-state backup, stops the timer and
+server, validates archive paths, restores the save, and starts both services:
+
+```sh
+sudo ./docs/project-zomboid-restore.sh \
+  /var/lib/project-zomboid/backups/archive/<archive>.tar.zst
+```
+
+It writes a rollback archive named
+`project-zomboid-<serverName>-pre-restore-<timestamp>.tar.zst` before changing
+the save.
 
 ```sh
 systemctl stop project-zomboid.service

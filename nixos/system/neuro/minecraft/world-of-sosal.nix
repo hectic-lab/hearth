@@ -13,10 +13,10 @@
     serverName = "wowMineMap";
     remoteHost = "u664722.your-storagebox.de";
     remoteUser = "u664722";
-    remotePath = "minecraft/pack/WorldOfSosal.mrpack";
+    remotePath = "minecraft/pack/WorldOfSosal-v3.mrpack";
     archiveName = "WorldOfSosal.mrpack";
     cacheDir = "/var/lib/minecraft-modpacks/worldOfSosal";
-    archiveSha256 = "f8c18acb9208e4592725632ae50dab4f9c308483b34fd43a6507c74fdbf8169f";
+    archiveSha256 = "f97cf251b14f40590e97e7b39e8a8ec43dacfce6da1b02357d15e0eee10d3ade";
     expectedDependencies = {
       minecraft = "1.21.1";
       neoforge = "21.1.250";

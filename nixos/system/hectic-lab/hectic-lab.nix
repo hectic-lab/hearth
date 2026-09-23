@@ -106,14 +106,22 @@ in {
       memory = "3g";
       serverName = "servertest";
       serverPropertiesFile = /var/lib/project-zomboid/server-password.ini;
+      rcon.enable = true;
       backup = {
         enable = true;
         onCalendar = "*:0/30";
         retentionDays = 14;
-        s3.enable = false;
+        s3 = {
+          enable = true;
+          bucket = "backup-hectic-lab";
+          endpoint = "https://hel1.your-objectstorage.com";
+          region = "hel1";
+          credentialsFile = "/var/lib/project-zomboid/s3-credentials";
+        };
       };
       serverProperties = {
         Map = "Muldraugh, KY";
+        SaveWorldEveryMinutes = 15;
         DoLuaChecksum = false;
         Public = true;
         AntiCheatSafety = 4;
@@ -259,12 +267,37 @@ in {
       "jwt-secret"
       "s3-access-key"
       "s3-secret-key"
-    ]);
+    ]) // {
+      "project-zomboid/s3-access-key" = {
+        key = "ente/s3-access-key";
+        owner = "project-zomboid";
+        group = "project-zomboid";
+      };
+      "project-zomboid/s3-secret-key" = {
+        key = "ente/s3-secret-key";
+        owner = "project-zomboid";
+        group = "project-zomboid";
+      };
+    };
   };
 
   systemd.services.project-zomboid.preStart = lib.mkBefore ''
     password_file=${lib.escapeShellArg "/var/lib/project-zomboid/server-password"}
     properties_file=${lib.escapeShellArg "/var/lib/project-zomboid/server-password.ini"}
+    s3_credentials_file=${lib.escapeShellArg "/var/lib/project-zomboid/s3-credentials"}
+    s3_credentials_tmp="$(${pkgs.coreutils}/bin/mktemp "''${s3_credentials_file}.XXXXXX")"
+    trap '${pkgs.coreutils}/bin/rm -f "$s3_credentials_tmp"' EXIT
+
+    {
+      ${pkgs.coreutils}/bin/printf 'AWS_ACCESS_KEY_ID='
+      ${pkgs.coreutils}/bin/cat ${lib.escapeShellArg config.sops.secrets."project-zomboid/s3-access-key".path}
+      ${pkgs.coreutils}/bin/printf '\n'
+      ${pkgs.coreutils}/bin/printf 'AWS_SECRET_ACCESS_KEY='
+      ${pkgs.coreutils}/bin/cat ${lib.escapeShellArg config.sops.secrets."project-zomboid/s3-secret-key".path}
+      ${pkgs.coreutils}/bin/printf '\n'
+    } > "$s3_credentials_tmp"
+    ${pkgs.coreutils}/bin/chmod 0400 "$s3_credentials_tmp"
+    ${pkgs.coreutils}/bin/mv -f "$s3_credentials_tmp" "$s3_credentials_file"
 
     if [ ! -s "$password_file" ] || ! ${pkgs.gnugrep}/bin/grep -Eq '^[0-9a-f]{48}$' "$password_file"; then
       umask 077

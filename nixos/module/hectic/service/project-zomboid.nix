@@ -37,6 +37,7 @@
   ) cfg.sandboxProperties;
   zomboidDir = "${cfg.dataDir}/Zomboid";
   adminPasswordFile = "${cfg.dataDir}/admin-password";
+  rconPasswordFile = cfg.rcon.passwordFile;
   backupCfg = cfg.backup;
   s3CredentialsFile = if backupCfg.s3.credentialsFile == null then "" else backupCfg.s3.credentialsFile;
   s3Bucket = if backupCfg.s3.bucket == null then "" else backupCfg.s3.bucket;
@@ -61,6 +62,20 @@
       ${pkgs.coreutils}/bin/printf '%s\n' 'Project Zomboid backup already running; skipping.' >&2
       exit 0
     fi
+
+    ${lib.optionalString cfg.rcon.enable ''
+      rcon_password="$(${pkgs.coreutils}/bin/cat ${lib.escapeShellArg rconPasswordFile})"
+      if [ -z "$rcon_password" ]; then
+        ${pkgs.coreutils}/bin/printf '%s\n' 'Project Zomboid RCON password file is empty.' >&2
+        exit 1
+      fi
+      ${pkgs.rcon}/bin/rcon \
+        --host 127.0.0.1 \
+        --port ${toString cfg.rcon.port} \
+        --password "$rcon_password" \
+        save
+      ${pkgs.coreutils}/bin/sleep ${toString backupCfg.saveWaitSeconds}
+    ''}
 
     sync_staging() {
       ${pkgs.rsync}/bin/rsync -a --delete \
@@ -273,6 +288,22 @@ in {
       description = "Open the Project Zomboid UDP ports in the firewall.";
     };
 
+    rcon = {
+      enable = lib.mkEnableOption "local RCON for Project Zomboid automation";
+
+      port = lib.mkOption {
+        type = lib.types.port;
+        default = 27015;
+        description = "RCON TCP port; not opened in the firewall by this module.";
+      };
+
+      passwordFile = lib.mkOption {
+        type = lib.types.path;
+        default = "${cfg.dataDir}/rcon-password";
+        description = "Runtime file containing the generated RCON password.";
+      };
+    };
+
     backup = {
       enable = lib.mkEnableOption "no-stop Project Zomboid backups";
 
@@ -298,6 +329,12 @@ in {
         type = lib.types.ints.positive;
         default = 14;
         description = "Delete local archives older than this many days.";
+      };
+
+      saveWaitSeconds = lib.mkOption {
+        type = lib.types.ints.positive;
+        default = 10;
+        description = "Seconds to wait after the RCON save command before rsync.";
       };
 
       s3 = {
@@ -347,6 +384,13 @@ in {
 
   config = lib.mkIf cfg.enable {
     assertions = [
+      {
+        assertion = !cfg.rcon.enable || (
+          lib.hasPrefix "/" cfg.rcon.passwordFile
+          && !lib.hasPrefix "/nix/store/" cfg.rcon.passwordFile
+        );
+        message = "hectic.services.project-zomboid.rcon.passwordFile must be a runtime path outside /nix/store.";
+      }
       {
         assertion = !backupCfg.s3.enable || backupCfg.enable;
         message = "hectic.services.project-zomboid.backup must be enabled before S3 upload.";
@@ -417,6 +461,22 @@ in {
           umask 077
           ${pkgs.openssl}/bin/openssl rand -base64 32 > ${lib.escapeShellArg adminPasswordFile}
         fi
+        ${lib.optionalString cfg.rcon.enable ''
+          if [ ! -s ${lib.escapeShellArg rconPasswordFile} ]; then
+            umask 077
+            ${pkgs.openssl}/bin/openssl rand -hex 32 > ${lib.escapeShellArg rconPasswordFile}
+          else
+            rcon_password=$(${pkgs.coreutils}/bin/cat ${lib.escapeShellArg rconPasswordFile})
+            case "$rcon_password" in
+              *[!0123456789abcdefABCDEF]*)
+                umask 077
+                ${pkgs.openssl}/bin/openssl rand -hex 32 > ${lib.escapeShellArg rconPasswordFile}
+                ;;
+            esac
+          fi
+          ${pkgs.coreutils}/bin/chown project-zomboid:project-zomboid ${lib.escapeShellArg rconPasswordFile}
+          ${pkgs.coreutils}/bin/chmod 0600 ${lib.escapeShellArg rconPasswordFile}
+        ''}
         ${pkgs.steamcmd}/bin/steamcmd \
           +force_install_dir ${lib.escapeShellArg cfg.installDir} \
           +login anonymous \
@@ -433,6 +493,12 @@ in {
           ) configLines}
           ${lib.optionalString (cfg.serverPropertiesFile != null)
             "${pkgs.coreutils}/bin/cat ${lib.escapeShellArg cfg.serverPropertiesFile};"}
+          ${lib.optionalString cfg.rcon.enable ''
+            ${pkgs.coreutils}/bin/printf '%s\n' ${lib.escapeShellArg "RCONPort=${toString cfg.rcon.port}"};
+            ${pkgs.coreutils}/bin/printf '%s' 'RCONPassword=';
+            ${pkgs.coreutils}/bin/cat ${lib.escapeShellArg rconPasswordFile};
+            ${pkgs.coreutils}/bin/printf '\n';
+          ''}
         } > ${lib.escapeShellArg "${zomboidDir}/Server/${cfg.serverName}.ini"}
         ${lib.optionalString (cfg.sandboxProperties != { }) ''
           {
