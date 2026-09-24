@@ -103,7 +103,7 @@ in {
     };
     services."project-zomboid" = {
       enable = true;
-      memory = "3g";
+      memory = "4g";
       serverName = "servertest";
       serverPropertiesFile = /var/lib/project-zomboid/server-password.ini;
       rcon.enable = true;
@@ -534,6 +534,9 @@ in {
         extraConfig = ''
           proxy_pass     http://127.0.0.1:11011/;
           proxy_redirect off;
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         '';
       };
     };
@@ -543,15 +546,21 @@ in {
     gitea = {
       enable = true;
       package = pkgs.hectic.gitea-heatmap;
-      settings.service.DISABLE_REGISTRATION = false;
+      # Keep LFS storage limited to accounts provisioned by administrators.
+      settings.service.DISABLE_REGISTRATION = true;
+      settings.session.COOKIE_SECURE = true;
       settings.actions.ENABLED = true;
       # Long CUDA builds must not hit Gitea's default three-hour task watchdog.
       settings.actions.ENDLESS_TASK_TIMEOUT = "8h";
       settings.server = {
+        HTTP_ADDR  = "127.0.0.1";
         HTTP_PORT  = 11011;
+        ROOT_URL   = "https://gitea.${domain}/";
         SSH_PORT   = sshPort;
         SSH_DOMAIN = "hectic-lab.com";
       };
+      lfs.enable = true;
+      settings.lfs.LFS_MAX_FILE_SIZE = 536870912;
       database = {
         createDatabase = true;
         type = "postgres";
