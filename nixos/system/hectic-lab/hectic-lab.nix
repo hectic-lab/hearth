@@ -14,7 +14,7 @@ with builtins;
 with lib;
 let
   domain = "hectic-lab.com";
-  sshPort = 22;
+  giteaSshPort = 22223;
   mailUserNames = [
     "security"
     "founders"
@@ -342,7 +342,7 @@ in {
     ];
   };
 
-  services.openssh.ports = [ sshPort ];
+  services.openssh.ports = [ giteaSshPort ];
 
   services.mailserver = {
     enable = true;
@@ -364,7 +364,7 @@ in {
 
   networking.firewall = {
     allowedTCPPorts = [
-      sshPort # ssh
+      giteaSshPort # gitea ssh
       80
       443
       3306  # mysql
@@ -556,7 +556,7 @@ in {
         HTTP_ADDR  = "127.0.0.1";
         HTTP_PORT  = 11011;
         ROOT_URL   = "https://gitea.${domain}/";
-        SSH_PORT   = sshPort;
+        SSH_PORT   = giteaSshPort;
         SSH_DOMAIN = "hectic-lab.com";
       };
       lfs.enable = true;

@@ -17,7 +17,7 @@ let
     UsePAM yes
     AuthenticationMethods publickey
     AuthorizedKeysFile %h/.ssh/authorized_keys /etc/ssh/authorized_keys.d/%u
-    LogLevel DEBUG3
+     LogLevel INFO
 
     VersionAddendum none
     HostKeyAlgorithms rsa-sha2-512,rsa-sha2-256,ssh-ed25519
