@@ -1,4 +1,8 @@
-{ self, pkgs, inputs, ... }: let
+{ self, pkgs, inputs, system, ... }: let
+  giteaPkgs = import inputs.nixpkgs-gitea {
+    inherit system;
+    config = pkgs.config;
+  };
   rust = {
     nativeBuildInputs = [
       pkgs.pkgsBuildHost.rust-bin.stable."1.81.0".default
@@ -135,7 +139,9 @@ in {
   c-hectic                     = pkgs.callPackage ./c/hectic/default.nix              {};
   watch                        = pkgs.callPackage ./c/watch/default.nix               {};
   support-bot                  = pkgs.callPackage ./support-bot                       {};
-  gitea-heatmap                = pkgs.callPackage ./gitea                             {};
+  gitea-heatmap                = giteaPkgs.callPackage ./gitea {
+    nixosTests = pkgs.nixosTests;
+  };
   gitea-runner-nix-image       = pkgs.callPackage ./gitea-runner-nix-image            {};
   gitea-runner-controller      = pkgs.callPackage ./gitea-runner-controller           {};
   nix-derivation-hash          = pkgs.callPackage ./nix-derivation-hash               {};
