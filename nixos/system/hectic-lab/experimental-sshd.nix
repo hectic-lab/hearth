@@ -65,7 +65,8 @@ in
       Type = "simple";
       StateDirectory = "experimental-sshd";
       RuntimeDirectory = "experimental-sshd";
-      ExecStart = "${pkgs.openssh}/bin/sshd -D -e -f /etc/ssh/experimental-sshd_config";
+      ExecStart = "${pkgs.openssh}/bin/sshd -D -f /etc/ssh/experimental-sshd_config";
+      StandardError = "journal";
     };
     preStart = ''
       ${pkgs.openssh}/bin/sshd -t -f /etc/ssh/experimental-sshd_config
