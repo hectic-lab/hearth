@@ -1,7 +1,7 @@
 import {
-  dirname, basename, extname, isObject, stripTags, parseIssueHref,
-  parseUrl, translateMonth, translateDay, blobToDataURI,
-  toAbsoluteUrl, encodeURLEncodedBase64, decodeURLEncodedBase64, isImageFile, isVideoFile, parseRepoOwnerPathInfo,
+  dirname, basename, extname, formatBytes, isObject, stripTags, parseIssueHref,
+  translateMonth, translateDay, blobToDataURI,
+  encodeURLEncodedBase64, decodeURLEncodedBase64, isImageFile, isVideoFile, parseRepoOwnerPathInfo,
 } from './utils.ts';
 
 test('dirname', () => {
@@ -61,18 +61,6 @@ test('parseRepoOwnerPathInfo', () => {
   window.config.appSubUrl = '';
 });
 
-test('parseUrl', () => {
-  expect(parseUrl('').pathname).toEqual('/');
-  expect(parseUrl('/path').pathname).toEqual('/path');
-  expect(parseUrl('/path?search').pathname).toEqual('/path');
-  expect(parseUrl('/path?search').search).toEqual('?search');
-  expect(parseUrl('/path?search#hash').hash).toEqual('#hash');
-  expect(parseUrl('https://localhost/path').pathname).toEqual('/path');
-  expect(parseUrl('https://localhost/path?search').pathname).toEqual('/path');
-  expect(parseUrl('https://localhost/path?search').search).toEqual('?search');
-  expect(parseUrl('https://localhost/path?search#hash').hash).toEqual('#hash');
-});
-
 test('translateMonth', () => {
   const originalLang = document.documentElement.lang;
   document.documentElement.lang = 'en-US';
@@ -100,16 +88,6 @@ test('blobToDataURI', async () => {
   expect(await blobToDataURI(blob)).toEqual('data:application/json;base64,eyJ0ZXN0Ijp0cnVlfQ==');
 });
 
-test('toAbsoluteUrl', () => {
-  expect(toAbsoluteUrl('//host/dir')).toEqual('http://host/dir');
-  expect(toAbsoluteUrl('https://host/dir')).toEqual('https://host/dir');
-
-  expect(toAbsoluteUrl('')).toEqual('http://localhost:3000');
-  expect(toAbsoluteUrl('/user/repo')).toEqual('http://localhost:3000/user/repo');
-
-  expect(() => toAbsoluteUrl('path')).toThrow('unsupported');
-});
-
 test('encodeURLEncodedBase64, decodeURLEncodedBase64', () => {
   const encoder = new TextEncoder();
   const uint8array = encoder.encode.bind(encoder);
@@ -125,6 +103,17 @@ test('encodeURLEncodedBase64, decodeURLEncodedBase64', () => {
   expect(encodeURLEncodedBase64(uint8array('a'))).toEqual('YQ'); // standard base64: "YQ=="
   expect(new Uint8Array(decodeURLEncodedBase64('YQ'))).toEqual(uint8array('a'));
   expect(new Uint8Array(decodeURLEncodedBase64('YQ=='))).toEqual(uint8array('a'));
+});
+
+test('formatBytes', () => {
+  expect(formatBytes(-1)).toBe('0 B');
+  expect(formatBytes(0)).toBe('0 B');
+  expect(formatBytes(512)).toBe('512 B');
+  expect(formatBytes(1024)).toBe('1.0 KiB');
+  expect(formatBytes(1536)).toBe('1.5 KiB');
+  expect(formatBytes(10 * 1024)).toBe('10 KiB');
+  expect(formatBytes(1024 * 1024)).toBe('1.0 MiB');
+  expect(formatBytes(1024 * 1024 * 1024)).toBe('1.0 GiB');
 });
 
 test('file detection', () => {

@@ -9,14 +9,14 @@ import (
 	"slices"
 	"strings"
 
-	asymkey_model "code.gitea.io/gitea/models/asymkey"
-	"code.gitea.io/gitea/models/db"
-	user_model "code.gitea.io/gitea/models/user"
-	"code.gitea.io/gitea/modules/cache"
-	"code.gitea.io/gitea/modules/cachegroup"
-	"code.gitea.io/gitea/modules/git"
-	"code.gitea.io/gitea/modules/log"
-	"code.gitea.io/gitea/modules/setting"
+	asymkey_model "gitea.dev/models/asymkey"
+	"gitea.dev/models/db"
+	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/cache"
+	"gitea.dev/modules/cachegroup"
+	"gitea.dev/modules/git"
+	"gitea.dev/modules/log"
+	"gitea.dev/modules/setting"
 
 	"github.com/42wim/sshsig"
 	"github.com/ProtonMail/go-crypto/openpgp/packet"
@@ -143,7 +143,9 @@ func parseCommitWithGPGSignature(ctx context.Context, c *git.Commit, committer *
 		}
 	}
 
-	if setting.Repository.Signing.SigningKey != "" && setting.Repository.Signing.SigningKey != "default" && setting.Repository.Signing.SigningKey != "none" {
+	// an SSH instance key can never verify an OpenPGP signature, and exporting its path through gpg would only yield an empty key
+	if setting.Repository.Signing.SigningFormat != git.SigningKeyFormatSSH &&
+		setting.Repository.Signing.SigningKey != "" && setting.Repository.Signing.SigningKey != "default" && setting.Repository.Signing.SigningKey != "none" {
 		// OK we should try the default key
 		gpgSettings := git.GPGSettings{
 			Sign:  true,
@@ -167,7 +169,7 @@ func parseCommitWithGPGSignature(ctx context.Context, c *git.Commit, committer *
 		log.Error("Error getting default public gpg key: %v", err)
 	} else if defaultGPGSettings == nil {
 		log.Warn("Unable to get defaultGPGSettings for unattached commit: %s", c.ID.String())
-	} else if defaultGPGSettings.Sign {
+	} else if defaultGPGSettings.Sign && defaultGPGSettings.Format != git.SigningKeyFormatSSH {
 		if commitVerification := verifyWithGPGSettings(ctx, defaultGPGSettings, sig, c.Signature.Payload, committer, keyID); commitVerification != nil {
 			if commitVerification.Reason == asymkey_model.BadSignature {
 				defaultReason = asymkey_model.BadSignature

@@ -9,15 +9,16 @@ import (
 	"testing"
 	"time"
 
-	activities_model "code.gitea.io/gitea/models/activities"
-	"code.gitea.io/gitea/models/db"
-	repo_model "code.gitea.io/gitea/models/repo"
-	"code.gitea.io/gitea/models/unittest"
-	user_model "code.gitea.io/gitea/models/user"
-	"code.gitea.io/gitea/modules/git"
-	"code.gitea.io/gitea/modules/git/gitcmd"
-	repo_module "code.gitea.io/gitea/modules/repository"
-	"code.gitea.io/gitea/modules/timeutil"
+	activities_model "gitea.dev/models/activities"
+	"gitea.dev/models/db"
+	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unittest"
+	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/git"
+	"gitea.dev/modules/git/gitcmd"
+	"gitea.dev/modules/queue"
+	repo_module "gitea.dev/modules/repository"
+	"gitea.dev/modules/timeutil"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,7 +47,8 @@ func TestHeatmapIndexDefaultBranchAuthorDates(t *testing.T) {
 	emailAddress, err := user_model.GetEmailAddressByEmail(t.Context(), "user2@example.com")
 	require.NoError(t, err)
 	emailAddress.UID = 1
-	require.NoError(t, user_model.UpdateEmailAddress(t.Context(), emailAddress))
+	_, err = db.GetEngine(t.Context()).ID(emailAddress.ID).Cols("uid").Update(emailAddress)
+	require.NoError(t, err)
 	require.NoError(t, IndexDefaultBranchHeatmapContributions(t.Context(), repo))
 
 	contributions = loadHeatmapContributionsForRepo(t, repo.ID)
@@ -83,6 +85,13 @@ func TestHeatmapIndexIgnoresPusherAndNonDefaultBranch(t *testing.T) {
 }
 
 func TestHeatmapIndexOnPushDefaultBranch(t *testing.T) {
+	previousLicenseUpdaterQueue := licenseUpdaterQueue
+	licenseUpdaterQueue = queue.CreateUniqueQueue[*LicenseUpdaterOptions](t.Context(), "heatmap_test_license_updater", nil)
+	require.NotNil(t, licenseUpdaterQueue)
+	defer func() {
+		licenseUpdaterQueue = previousLicenseUpdaterQueue
+	}()
+
 	repo, commits := prepareHeatmapIndexRepo(t, "heatmap-push-default", []heatmapIndexTestCommit{
 		{Branch: "main", Mark: "initial", AuthorName: "User Two", AuthorEmail: "user2@example.com", CommitterName: "User One", CommitterEmail: "user1@example.com", AuthorDate: "2020-01-15T12:00:00Z"},
 	})
@@ -96,7 +105,7 @@ func TestHeatmapIndexOnPushDefaultBranch(t *testing.T) {
 	newCommits := runFastImport(t, repo, []heatmapIndexTestCommit{
 		{Branch: "main", Mark: "pushed", Parent: commits["initial"], AuthorName: "User Two", AuthorEmail: "user2@example.com", CommitterName: "User One", CommitterEmail: "user1@example.com", AuthorDate: "2020-01-16T12:00:00Z"},
 	})
-	require.NoError(t, pushUpdates([]*repo_module.PushUpdateOptions{
+	require.NoError(t, pushQueueHandleUpdates([]*repo_module.PushUpdateOptions{
 		{
 			RefFullName:  git.RefNameFromBranch("main"),
 			OldCommitID:  commits["initial"],
@@ -115,7 +124,7 @@ func TestHeatmapIndexOnPushDefaultBranch(t *testing.T) {
 	featureCommits := runFastImport(t, repo, []heatmapIndexTestCommit{
 		{Branch: "feature", Mark: "feature-pushed", AuthorName: "User Two", AuthorEmail: "user2@example.com", CommitterName: "User One", CommitterEmail: "user1@example.com", AuthorDate: "2020-01-17T12:00:00Z"},
 	})
-	require.NoError(t, pushUpdates([]*repo_module.PushUpdateOptions{
+	require.NoError(t, pushQueueHandleUpdates([]*repo_module.PushUpdateOptions{
 		{
 			RefFullName:  git.RefNameFromBranch("feature"),
 			OldCommitID:  git.Sha1ObjectFormat.EmptyObjectID().String(),

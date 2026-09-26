@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	activities_model "code.gitea.io/gitea/models/activities"
-	auth_model "code.gitea.io/gitea/models/auth"
-	"code.gitea.io/gitea/models/db"
-	user_model "code.gitea.io/gitea/models/user"
-	"code.gitea.io/gitea/modules/timeutil"
-	"code.gitea.io/gitea/tests"
+	activities_model "gitea.dev/models/activities"
+	auth_model "gitea.dev/models/auth"
+	"gitea.dev/models/db"
+	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/timeutil"
+	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,8 +38,7 @@ func TestUserHeatmap(t *testing.T) {
 	req := NewRequestf(t, "GET", "/api/v1/users/%s/heatmap", normalUsername).
 		AddTokenAuth(token)
 	resp := MakeRequest(t, req, http.StatusOK)
-	var heatmap []*activities_model.UserHeatmapData
-	DecodeJSON(t, resp, &heatmap)
+	heatmap := DecodeJSON(t, resp, []*activities_model.UserHeatmapData{})
 
 	assert.Equal(t, []*activities_model.UserHeatmapData{
 		{Timestamp: 1319068800, Contributions: 2},

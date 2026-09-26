@@ -102,16 +102,17 @@ import (
 	"strings"
 	"time"
 
-	actions_model "code.gitea.io/gitea/models/actions"
-	"code.gitea.io/gitea/models/db"
-	"code.gitea.io/gitea/modules/actions"
-	"code.gitea.io/gitea/modules/httplib"
-	"code.gitea.io/gitea/modules/log"
-	"code.gitea.io/gitea/modules/setting"
-	"code.gitea.io/gitea/modules/storage"
-	"code.gitea.io/gitea/modules/util"
-	"code.gitea.io/gitea/modules/web"
-	"code.gitea.io/gitea/services/context"
+	actions_model "gitea.dev/models/actions"
+	"gitea.dev/models/db"
+	actions_module "gitea.dev/modules/actions"
+	"gitea.dev/modules/httplib"
+	"gitea.dev/modules/log"
+	"gitea.dev/modules/setting"
+	"gitea.dev/modules/storage"
+	"gitea.dev/modules/util"
+	"gitea.dev/modules/web"
+	"gitea.dev/services/actions"
+	"gitea.dev/services/context"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -161,7 +162,7 @@ func ArtifactsV4Routes(prefix string) *web.Router {
 }
 
 func (r *artifactV4Routes) buildSignature(endpoint, expires, artifactName string, taskID, artifactID int64) []byte {
-	return actions.BuildSignature("v4", endpoint, expires, artifactName, strconv.FormatInt(taskID, 10), strconv.FormatInt(artifactID, 10))
+	return actions_module.BuildSignature("v4", endpoint, expires, artifactName, strconv.FormatInt(taskID, 10), strconv.FormatInt(artifactID, 10))
 }
 
 func (r *artifactV4Routes) buildArtifactURL(ctx *ArtifactContext, endpoint, artifactName string, taskID, artifactID int64) string {
@@ -260,9 +261,28 @@ func (r *artifactV4Routes) verifySignature(ctx *ArtifactContext, endp string) (*
 	return task, artifactName, true
 }
 
-func (r *artifactV4Routes) getArtifactByName(ctx *ArtifactContext, runID int64, name string) (*actions_model.ActionArtifact, error) {
+// getOwnAttemptArtifactByName resolves an artifact of the given attempt whatever its status,
+// since upload and finalize work on the pending row they just created.
+func (r *artifactV4Routes) getOwnAttemptArtifactByName(ctx *ArtifactContext, runID, runAttemptID int64, name string) (*actions_model.ActionArtifact, error) {
+	return r.findArtifactByName(ctx, runID, []int64{runAttemptID}, name, nil)
+}
+
+// getDownloadableArtifactByName resolves the newest artifact with the given name within the attempts whose content can still be served,
+// so a pending, deleted or expired row of a newer attempt does not shadow the confirmed copy inherited from an older one.
+func (r *artifactV4Routes) getDownloadableArtifactByName(ctx *ArtifactContext, runID int64, runAttemptIDs []int64, name string) (*actions_model.ActionArtifact, error) {
+	return r.findArtifactByName(ctx, runID, runAttemptIDs, name, builder.Eq{"status": actions_model.ArtifactStatusUploadConfirmed})
+}
+
+func (r *artifactV4Routes) findArtifactByName(ctx *ArtifactContext, runID int64, runAttemptIDs []int64, name string, extraCond builder.Cond) (*actions_model.ActionArtifact, error) {
+	cond := builder.NewCond().
+		And(builder.Eq{"run_id": runID, "artifact_name": name}, builder.Like{"content_encoding", "%/%"}).
+		And(builder.In("run_attempt_id", runAttemptIDs))
+	if extraCond != nil {
+		cond = cond.And(extraCond)
+	}
+
 	var art actions_model.ActionArtifact
-	has, err := db.GetEngine(ctx).Where(builder.Eq{"run_id": runID, "artifact_name": name}, builder.Like{"content_encoding", "%/%"}).Get(&art)
+	has, err := db.GetEngine(ctx).Where(cond).OrderBy("run_attempt_id DESC, id DESC").Get(&art)
 	if err != nil {
 		return nil, err
 	} else if !has {
@@ -382,7 +402,7 @@ func (r *artifactV4Routes) uploadArtifact(ctx *ArtifactContext) {
 	switch comp {
 	case "block", "appendBlock":
 		// get artifact by name
-		artifact, err := r.getArtifactByName(ctx, task.Job.RunID, artifactName)
+		artifact, err := r.getOwnAttemptArtifactByName(ctx, task.Job.RunID, task.Job.RunAttemptID, artifactName)
 		if err != nil {
 			log.Error("Error artifact not found: %v", err)
 			ctx.HTTPError(http.StatusNotFound, "Error artifact not found")
@@ -469,7 +489,7 @@ func (r *artifactV4Routes) finalizeArtifact(ctx *ArtifactContext) {
 	}
 
 	// get artifact by name
-	artifact, err := r.getArtifactByName(ctx, runID, req.Name)
+	artifact, err := r.getOwnAttemptArtifactByName(ctx, runID, ctx.ActionTask.Job.RunAttemptID, req.Name)
 	if err != nil {
 		log.Error("Error artifact not found: %v", err)
 		ctx.HTTPError(http.StatusNotFound, "Error artifact not found")
@@ -576,13 +596,18 @@ func (r *artifactV4Routes) listArtifacts(ctx *ArtifactContext) {
 	if ok := r.parseProtobufBody(ctx, &req); !ok {
 		return
 	}
-	_, runID, ok := validateRunIDV4(ctx, req.WorkflowRunBackendId)
+	task, runID, ok := validateRunIDV4(ctx, req.WorkflowRunBackendId)
+	if !ok {
+		return
+	}
+	attemptIDs, ok := readableArtifactAttemptIDs(ctx, task)
 	if !ok {
 		return
 	}
 
-	artifacts, err := db.Find[actions_model.ActionArtifact](ctx, actions_model.FindArtifactsOptions{
+	artifacts, err := actions_model.FindReadableArtifacts(ctx, actions_model.FindArtifactsOptions{
 		RunID:                runID,
+		RunAttemptIDs:        attemptIDs,
 		Status:               int(actions_model.ArtifactStatusUploadConfirmed),
 		FinalizedArtifactsV4: true,
 	})
@@ -594,6 +619,8 @@ func (r *artifactV4Routes) listArtifacts(ctx *ArtifactContext) {
 
 	list := []*ListArtifactsResponse_MonolithArtifact{}
 
+	// both filters pick from what this attempt may read, so they run after the shadowed artifacts are gone:
+	// a shadowed artifact is not downloadable either, GetSignedArtifactURL resolves by name
 	table := map[string]*ListArtifactsResponse_MonolithArtifact{}
 	for _, artifact := range artifacts {
 		if _, ok := table[artifact.ArtifactName]; ok || req.IdFilter != nil && artifact.ID != req.IdFilter.Value || req.NameFilter != nil && artifact.ArtifactName != req.NameFilter.Value {
@@ -628,7 +655,11 @@ func (r *artifactV4Routes) getSignedArtifactURL(ctx *ArtifactContext) {
 	if ok := r.parseProtobufBody(ctx, &req); !ok {
 		return
 	}
-	_, runID, ok := validateRunIDV4(ctx, req.WorkflowRunBackendId)
+	task, runID, ok := validateRunIDV4(ctx, req.WorkflowRunBackendId)
+	if !ok {
+		return
+	}
+	attemptIDs, ok := readableArtifactAttemptIDs(ctx, task)
 	if !ok {
 		return
 	}
@@ -636,14 +667,9 @@ func (r *artifactV4Routes) getSignedArtifactURL(ctx *ArtifactContext) {
 	artifactName := req.Name
 
 	// get artifact by name
-	artifact, err := r.getArtifactByName(ctx, runID, artifactName)
+	artifact, err := r.getDownloadableArtifactByName(ctx, runID, attemptIDs, artifactName)
 	if err != nil {
 		log.Error("Error artifact not found: %v", err)
-		ctx.HTTPError(http.StatusNotFound, "Error artifact not found")
-		return
-	}
-	if artifact.Status != actions_model.ArtifactStatusUploadConfirmed {
-		log.Error("Error artifact not found: %s", artifact.Status.ToString())
 		ctx.HTTPError(http.StatusNotFound, "Error artifact not found")
 		return
 	}
@@ -668,16 +694,15 @@ func (r *artifactV4Routes) downloadArtifact(ctx *ArtifactContext) {
 	if !ok {
 		return
 	}
-
-	// get artifact by name
-	artifact, err := r.getArtifactByName(ctx, task.Job.RunID, artifactName)
-	if err != nil {
-		log.Error("Error artifact not found: %v", err)
-		ctx.HTTPError(http.StatusNotFound, "Error artifact not found")
+	attemptIDs, ok := readableArtifactAttemptIDs(ctx, task)
+	if !ok {
 		return
 	}
-	if artifact.Status != actions_model.ArtifactStatusUploadConfirmed {
-		log.Error("Error artifact not found: %s", artifact.Status.ToString())
+
+	// get artifact by name
+	artifact, err := r.getDownloadableArtifactByName(ctx, task.Job.RunID, attemptIDs, artifactName)
+	if err != nil {
+		log.Error("Error artifact not found: %v", err)
 		ctx.HTTPError(http.StatusNotFound, "Error artifact not found")
 		return
 	}
@@ -701,14 +726,14 @@ func (r *artifactV4Routes) deleteArtifact(ctx *ArtifactContext) {
 	}
 
 	// get artifact by name
-	artifact, err := r.getArtifactByName(ctx, runID, req.Name)
+	artifact, err := r.getOwnAttemptArtifactByName(ctx, runID, ctx.ActionTask.Job.RunAttemptID, req.Name)
 	if err != nil {
 		log.Error("Error artifact not found: %v", err)
 		ctx.HTTPError(http.StatusNotFound, "Error artifact not found")
 		return
 	}
 
-	err = actions_model.SetArtifactNeedDelete(ctx, runID, req.Name)
+	err = actions_model.SetArtifactNeedDeleteByRunAttempt(ctx, runID, ctx.ActionTask.Job.RunAttemptID, req.Name)
 	if err != nil {
 		log.Error("Error deleting artifacts: %v", err)
 		ctx.HTTPError(http.StatusInternalServerError, err.Error())

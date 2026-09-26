@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"code.gitea.io/gitea/modules/log"
-	"code.gitea.io/gitea/modules/optional"
-	"code.gitea.io/gitea/modules/user"
-	"code.gitea.io/gitea/modules/util"
+	"gitea.dev/modules/log"
+	"gitea.dev/modules/optional"
+	"gitea.dev/modules/user"
+	"gitea.dev/modules/util"
 )
 
 // settings
@@ -42,9 +42,9 @@ func init() {
 		AppVer = "dev"
 	}
 
-	// We can rely on log.CanColorStdout being set properly because modules/log/console_windows.go comes before modules/setting/setting.go lexicographically
+	// FIXME: the logger shouldn't be initialized here, the app entry should initialize the logger
 	// By default set this logger at Info - we'll change it later, but we need to start with something.
-	log.SetConsoleLogger(log.DEFAULT, "console", log.INFO)
+	log.SetupStderrLogger(log.DEFAULT, "console-stderr", log.INFO)
 }
 
 // IsRunUserMatchCurrentUser returns false if configured run user does not match

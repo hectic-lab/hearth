@@ -12,10 +12,10 @@ import (
 	"strconv"
 	"strings"
 
-	"code.gitea.io/gitea/modules/git"
-	"code.gitea.io/gitea/modules/git/gitcmd"
-	"code.gitea.io/gitea/modules/log"
-	"code.gitea.io/gitea/modules/setting"
+	"gitea.dev/modules/git"
+	"gitea.dev/modules/git/gitcmd"
+	"gitea.dev/modules/log"
+	"gitea.dev/modules/setting"
 )
 
 type DiffTree struct {
@@ -59,6 +59,11 @@ func runGitDiffTree(ctx context.Context, gitRepo *git.Repository, useMergeBase b
 
 	cmd := gitcmd.NewCommand("diff-tree", "--raw", "-r", "--root").
 		AddOptionFormat("--find-renames=%s", setting.Git.DiffRenameSimilarityThreshold)
+
+	// HINT: GIT-DIFF-TREE-UI-CONFIG: apply the diff.orderfile explicitly
+	if git.GlobalConfig.DiffOrderFile != "" {
+		cmd.AddOptionFormat("-O%s", git.GlobalConfig.DiffOrderFile)
+	}
 
 	if useMergeBase {
 		cmd.AddArguments("--merge-base")

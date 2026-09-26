@@ -6,13 +6,13 @@ package repository
 import (
 	"testing"
 
-	"code.gitea.io/gitea/models/db"
-	issues_model "code.gitea.io/gitea/models/issues"
-	"code.gitea.io/gitea/models/perm"
-	access_model "code.gitea.io/gitea/models/perm/access"
-	repo_model "code.gitea.io/gitea/models/repo"
-	"code.gitea.io/gitea/models/unittest"
-	user_model "code.gitea.io/gitea/models/user"
+	"gitea.dev/models/db"
+	issues_model "gitea.dev/models/issues"
+	"gitea.dev/models/perm"
+	access_model "gitea.dev/models/perm/access"
+	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unittest"
+	user_model "gitea.dev/models/user"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -20,16 +20,20 @@ import (
 func TestRepository_AddCollaborator(t *testing.T) {
 	assert.NoError(t, unittest.PrepareTestDatabase())
 
-	testSuccess := func(repoID, userID int64) {
-		repo := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: repoID})
+	repo1 := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 1})
+	repo3 := unittest.AssertExistsAndLoadBean(t, &repo_model.Repository{ID: 3})
+	user4 := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: 4})
+	testSuccess := func(repo *repo_model.Repository, user *user_model.User) {
 		assert.NoError(t, repo.LoadOwner(t.Context()))
-		user := unittest.AssertExistsAndLoadBean(t, &user_model.User{ID: userID})
 		assert.NoError(t, AddOrUpdateCollaborator(t.Context(), repo, user, perm.AccessModeWrite))
-		unittest.CheckConsistencyFor(t, &repo_model.Repository{ID: repoID}, &user_model.User{ID: userID})
+		unittest.CheckConsistencyFor(t, repo, user)
 	}
-	testSuccess(1, 4)
-	testSuccess(1, 4)
-	testSuccess(3, 4)
+	testSuccess(repo1, user4)
+	testSuccess(repo1, user4)
+	testSuccess(repo3, user4)
+
+	assert.Error(t, AddOrUpdateCollaborator(t.Context(), repo1, user4, perm.AccessModeOwner))
+	assert.NoError(t, AddOrUpdateCollaborator(t.Context(), repo1, user4, perm.AccessModeAdmin))
 }
 
 func TestRepository_DeleteCollaboration(t *testing.T) {

@@ -5,39 +5,40 @@
 package convert
 
 import (
-	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"path"
 	"strconv"
-	"strings"
 	"time"
 
-	actions_model "code.gitea.io/gitea/models/actions"
-	asymkey_model "code.gitea.io/gitea/models/asymkey"
-	"code.gitea.io/gitea/models/auth"
-	"code.gitea.io/gitea/models/db"
-	git_model "code.gitea.io/gitea/models/git"
-	issues_model "code.gitea.io/gitea/models/issues"
-	"code.gitea.io/gitea/models/organization"
-	"code.gitea.io/gitea/models/perm"
-	access_model "code.gitea.io/gitea/models/perm/access"
-	repo_model "code.gitea.io/gitea/models/repo"
-	"code.gitea.io/gitea/models/unit"
-	user_model "code.gitea.io/gitea/models/user"
-	"code.gitea.io/gitea/modules/actions"
-	"code.gitea.io/gitea/modules/container"
-	"code.gitea.io/gitea/modules/git"
-	"code.gitea.io/gitea/modules/log"
-	"code.gitea.io/gitea/modules/setting"
-	api "code.gitea.io/gitea/modules/structs"
-	"code.gitea.io/gitea/modules/util"
-	asymkey_service "code.gitea.io/gitea/services/asymkey"
-	"code.gitea.io/gitea/services/gitdiff"
-
-	runnerv1 "code.gitea.io/actions-proto-go/runner/v1"
-	"github.com/nektos/act/pkg/model"
+	runnerv1 "gitea.dev/actions-proto-go/runner/v1"
+	actions_model "gitea.dev/models/actions"
+	asymkey_model "gitea.dev/models/asymkey"
+	"gitea.dev/models/auth"
+	"gitea.dev/models/db"
+	git_model "gitea.dev/models/git"
+	issues_model "gitea.dev/models/issues"
+	"gitea.dev/models/organization"
+	"gitea.dev/models/perm"
+	access_model "gitea.dev/models/perm/access"
+	repo_model "gitea.dev/models/repo"
+	"gitea.dev/models/unit"
+	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/actions"
+	"gitea.dev/modules/actions/jobparser"
+	"gitea.dev/modules/container"
+	"gitea.dev/modules/git"
+	"gitea.dev/modules/gitrepo"
+	"gitea.dev/modules/httplib"
+	"gitea.dev/modules/log"
+	"gitea.dev/modules/setting"
+	api "gitea.dev/modules/structs"
+	"gitea.dev/modules/util"
+	webhook_module "gitea.dev/modules/webhook"
+	asymkey_service "gitea.dev/services/asymkey"
+	"gitea.dev/services/gitdiff"
 )
 
 // ToEmail convert models.EmailAddress to api.Email
@@ -139,7 +140,7 @@ func getWhitelistEntities[T *user_model.User | *organization.Team](entities []T,
 
 // ToBranchProtection convert a ProtectedBranch to api.BranchProtection
 func ToBranchProtection(ctx context.Context, bp *git_model.ProtectedBranch, repo *repo_model.Repository) *api.BranchProtection {
-	readers, err := access_model.GetUsersWithUnitAccess(ctx, repo, perm.AccessModeRead, unit.TypePullRequests)
+	readers, err := access_model.GetUsersWithAnyUnitAccess(ctx, repo, perm.AccessModeRead, unit.TypeCode, unit.TypePullRequests)
 	if err != nil {
 		log.Error("GetRepoReaders: %v", err)
 	}
@@ -148,6 +149,7 @@ func ToBranchProtection(ctx context.Context, bp *git_model.ProtectedBranch, repo
 	forcePushAllowlistUsernames := getWhitelistEntities(readers, bp.ForcePushAllowlistUserIDs)
 	mergeWhitelistUsernames := getWhitelistEntities(readers, bp.MergeWhitelistUserIDs)
 	approvalsWhitelistUsernames := getWhitelistEntities(readers, bp.ApprovalsWhitelistUserIDs)
+	bypassAllowlistUsernames := getWhitelistEntities(readers, bp.BypassAllowlistUserIDs)
 
 	teamReaders, err := organization.GetTeamsWithAccessToAnyRepoUnit(ctx, repo.Owner.ID, repo.ID, perm.AccessModeRead, unit.TypeCode, unit.TypePullRequests)
 	if err != nil {
@@ -158,6 +160,7 @@ func ToBranchProtection(ctx context.Context, bp *git_model.ProtectedBranch, repo
 	forcePushAllowlistTeams := getWhitelistEntities(teamReaders, bp.ForcePushAllowlistTeamIDs)
 	mergeWhitelistTeams := getWhitelistEntities(teamReaders, bp.MergeWhitelistTeamIDs)
 	approvalsWhitelistTeams := getWhitelistEntities(teamReaders, bp.ApprovalsWhitelistTeamIDs)
+	bypassAllowlistTeams := getWhitelistEntities(teamReaders, bp.BypassAllowlistTeamIDs)
 
 	branchName := ""
 	if !git_model.IsRuleNameSpecial(bp.RuleName) {
@@ -181,6 +184,9 @@ func ToBranchProtection(ctx context.Context, bp *git_model.ProtectedBranch, repo
 		EnableMergeWhitelist:          bp.EnableMergeWhitelist,
 		MergeWhitelistUsernames:       mergeWhitelistUsernames,
 		MergeWhitelistTeams:           mergeWhitelistTeams,
+		EnableBypassAllowlist:         bp.EnableBypassAllowlist,
+		BypassAllowlistUsernames:      bypassAllowlistUsernames,
+		BypassAllowlistTeams:          bypassAllowlistTeams,
 		EnableStatusCheck:             bp.EnableStatusCheck,
 		StatusCheckContexts:           bp.StatusCheckContexts,
 		RequiredApprovals:             bp.RequiredApprovals,
@@ -214,7 +220,7 @@ func ToTag(repo *repo_model.Repository, t *git.Tag) *api.Tag {
 
 	return &api.Tag{
 		Name:       t.Name,
-		Message:    strings.ToValidUTF8(strings.TrimSpace(t.Message), "?"), // the trim is not right, 1.27 won't trim
+		Message:    t.MessageUTF8(),
 		ID:         t.ID.String(),
 		Commit:     ToCommitMeta(repo, t),
 		ZipballURL: zipballURL,
@@ -222,14 +228,18 @@ func ToTag(repo *repo_model.Repository, t *git.Tag) *api.Tag {
 	}
 }
 
-// ToActionTask convert a actions_model.ActionTask to an api.ActionTask
+// ToActionTask convert an actions_model.ActionTask to an api.ActionTask
 func ToActionTask(ctx context.Context, t *actions_model.ActionTask) (*api.ActionTask, error) {
-	if err := t.LoadAttributes(ctx); err != nil {
+	// don't need Steps here, only need to load job and its run
+	if err := t.LoadJob(ctx); err != nil {
 		return nil, err
 	}
-
-	url := strings.TrimSuffix(setting.AppURL, "/") + t.GetRunLink()
-
+	if err := t.Job.LoadRun(ctx); err != nil {
+		return nil, err
+	}
+	if err := t.Job.Run.LoadRepo(ctx); err != nil {
+		return nil, err
+	}
 	return &api.ActionTask{
 		ID:           t.ID,
 		Name:         t.Job.Name,
@@ -240,37 +250,161 @@ func ToActionTask(ctx context.Context, t *actions_model.ActionTask) (*api.Action
 		DisplayTitle: t.Job.Run.Title,
 		Status:       t.Status.String(),
 		WorkflowID:   t.Job.Run.WorkflowID,
-		URL:          url,
+		URL:          httplib.MakeAbsoluteURL(ctx, t.Job.Run.Link()),
 		CreatedAt:    t.Created.AsLocalTime(),
 		UpdatedAt:    t.Updated.AsLocalTime(),
 		RunStartedAt: t.Started.AsLocalTime(),
 	}, nil
 }
 
-func ToActionWorkflowRun(ctx context.Context, repo *repo_model.Repository, run *actions_model.ActionRun) (*api.ActionWorkflowRun, error) {
-	err := run.LoadAttributes(ctx)
-	if err != nil {
+func ToActionWorkflowRun(ctx context.Context, run *actions_model.ActionRun, attempt *actions_model.ActionRunAttempt, excludePullRequests bool) (_ *api.ActionWorkflowRun, err error) {
+	if err := run.LoadAttributes(ctx); err != nil {
 		return nil, err
 	}
+
+	if attempt == nil {
+		attempt, _, err = run.GetLatestAttempt(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	runAttempt := int64(0)
 	status, conclusion := ToActionsStatus(run.Status)
+	startedAt := run.Started.AsLocalTime()
+	completedAt := run.Stopped.AsLocalTime()
+	actor := run.TriggerUser       // The username of the user that triggered the initial workflow run.
+	triggerUser := run.TriggerUser // The username of the user that initiated the workflow run. If the workflow run is a re-run, this value may differ from actor.
+
+	// previousAttemptURL is the value of ActionWorkflowRun.PreviousAttemptURL, which is declared as *string without `omitempty` on purpose:
+	// a nil value must still appear in the JSON body as `"previous_attempt_url": null`, matching GitHub's Actions API.
+	var previousAttemptURL *string
+
+	if attempt != nil {
+		attempt.Run = run
+		if err := attempt.LoadAttributes(ctx); err != nil {
+			return nil, err
+		}
+		runAttempt = attempt.Attempt
+		status, conclusion = ToActionsStatus(attempt.Status)
+		startedAt = attempt.Started.AsLocalTime()
+		completedAt = attempt.Stopped.AsLocalTime()
+		triggerUser = attempt.TriggerUser
+		if attempt.Attempt > 1 {
+			url := fmt.Sprintf("%s/actions/runs/%d/attempts/%d", run.Repo.APIURL(ctx), run.ID, attempt.Attempt-1)
+			previousAttemptURL = &url
+		}
+	}
+	pullRequests := []*api.PullRequestMinimal{}
+	if !excludePullRequests {
+		pullRequests, err = loadPullRequestsForRun(ctx, run)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &api.ActionWorkflowRun{
-		ID:           run.ID,
-		URL:          fmt.Sprintf("%s/actions/runs/%d", repo.APIURL(), run.ID),
-		HTMLURL:      run.HTMLURL(),
-		RunNumber:    run.Index,
-		StartedAt:    run.Started.AsLocalTime(),
-		CompletedAt:  run.Stopped.AsLocalTime(),
-		Event:        run.TriggerEvent,
-		DisplayTitle: run.Title,
-		HeadBranch:   git.RefName(run.Ref).BranchName(),
-		HeadSha:      run.CommitSHA,
-		Status:       status,
-		Conclusion:   conclusion,
-		Path:         fmt.Sprintf("%s@%s", run.WorkflowID, run.Ref),
-		Repository:   ToRepo(ctx, repo, access_model.Permission{AccessMode: perm.AccessModeNone}),
-		TriggerActor: ToUser(ctx, run.TriggerUser, nil),
-		// We do not have a way to get a different User for the actor than the trigger user
-		Actor: ToUser(ctx, run.TriggerUser, nil),
+		ID:                 run.ID,
+		URL:                fmt.Sprintf("%s/actions/runs/%d", run.Repo.APIURL(ctx), run.ID),
+		PreviousAttemptURL: previousAttemptURL,
+		HTMLURL:            run.HTMLURL(ctx),
+		RunNumber:          run.Index,
+		RunAttempt:         runAttempt,
+		StartedAt:          startedAt,
+		CompletedAt:        completedAt,
+		Event:              run.TriggerEvent,
+		DisplayTitle:       run.Title,
+		HeadBranch:         git.RefName(run.Ref).BranchName(),
+		HeadSha:            run.CommitSHA,
+		Status:             status,
+		Conclusion:         conclusion,
+		Path:               fmt.Sprintf("%s@%s", run.WorkflowID, run.Ref),
+		Repository:         ToRepo(ctx, run.Repo, access_model.Permission{AccessMode: perm.AccessModeNone}),
+		TriggerActor:       ToUser(ctx, triggerUser, nil),
+		Actor:              ToUser(ctx, actor, nil),
+		PullRequests:       pullRequests,
+	}, nil
+}
+
+// loadPullRequestsForRun returns the pull requests associated with a run, matching
+// GitHub's `pull_requests` field on workflow run responses:
+// - For pull_request / pull_request_review events, the PR whose ref triggered the run.
+// - For push events, open PRs whose head branch matches the pushed ref in the same repo.
+// - For other events, no PRs.
+func loadPullRequestsForRun(ctx context.Context, run *actions_model.ActionRun) ([]*api.PullRequestMinimal, error) {
+	result := []*api.PullRequestMinimal{}
+	refName := git.RefName(run.Ref)
+	var prs issues_model.PullRequestList
+	switch {
+	case run.Event.IsPullRequest() || run.Event.IsPullRequestReview():
+		index, err := strconv.ParseInt(refName.PullName(), 10, 64)
+		if err != nil {
+			return result, nil
+		}
+		pr, err := issues_model.GetPullRequestByIndex(ctx, run.RepoID, index)
+		if err != nil {
+			if issues_model.IsErrPullRequestNotExist(err) {
+				return result, nil
+			}
+			return nil, err
+		}
+		prs = issues_model.PullRequestList{pr}
+	case run.Event == webhook_module.HookEventPush:
+		branch := refName.BranchName()
+		if branch == "" {
+			return result, nil
+		}
+		var err error
+		prs, err = issues_model.GetUnmergedPullRequestsByHeadInfo(ctx, run.RepoID, branch)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return result, nil
+	}
+	for _, pr := range prs {
+		minimal, err := toPullRequestMinimal(ctx, run.Repo, pr, run.CommitSHA)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, minimal)
+	}
+	return result, nil
+}
+
+func toPullRequestMinimal(ctx context.Context, repo *repo_model.Repository, pr *issues_model.PullRequest, headSHA string) (*api.PullRequestMinimal, error) {
+	if err := pr.LoadBaseRepo(ctx); err != nil {
+		return nil, err
+	}
+	if err := pr.LoadHeadRepo(ctx); err != nil {
+		return nil, err
+	}
+	headRepo := pr.HeadRepo
+	if headRepo == nil {
+		headRepo = pr.BaseRepo
+	}
+	return &api.PullRequestMinimal{
+		ID:     pr.ID,
+		Number: pr.Index,
+		URL:    fmt.Sprintf("%s/pulls/%d", repo.APIURL(ctx), pr.Index),
+		Head: api.PullRequestMinimalHead{
+			Ref: pr.HeadBranch,
+			SHA: headSHA,
+			Repo: api.PullRequestMinimalHeadRepo{
+				ID:   headRepo.ID,
+				URL:  headRepo.APIURL(ctx),
+				Name: headRepo.Name,
+			},
+		},
+		Base: api.PullRequestMinimalHead{
+			Ref: pr.BaseBranch,
+			SHA: pr.MergeBase,
+			Repo: api.PullRequestMinimalHeadRepo{
+				ID:   pr.BaseRepo.ID,
+				URL:  pr.BaseRepo.APIURL(ctx),
+				Name: pr.BaseRepo.Name,
+			},
+		},
 	}, nil
 }
 
@@ -278,7 +412,7 @@ func ToWorkflowRunAction(status actions_model.Status) (action string) {
 	switch status {
 	case actions_model.StatusWaiting, actions_model.StatusBlocked:
 		action = "requested"
-	case actions_model.StatusRunning:
+	case actions_model.StatusRunning, actions_model.StatusCancelling:
 		action = "in_progress"
 	default:
 		if status.IsDone() {
@@ -296,7 +430,7 @@ func ToActionsStatus(status actions_model.Status) (action, conclusion string) {
 		action = "queued" // "waiting" is a naming conflict of the webhook between Gitea and GitHub Actions
 	case actions_model.StatusBlocked:
 		action = "waiting" // naming conflict (as above)
-	case actions_model.StatusRunning:
+	case actions_model.StatusRunning, actions_model.StatusCancelling:
 		action = "in_progress"
 	default:
 		action = "completed"
@@ -329,9 +463,9 @@ func ToActionWorkflowJob(ctx context.Context, repo *repo_model.Repository, task 
 	var runnerName string
 	var steps []*api.ActionWorkflowStep
 
-	if job.TaskID != 0 {
+	if effectiveTaskID := job.EffectiveTaskID(); effectiveTaskID != 0 {
 		if task == nil {
-			task, _, err = db.GetByID[actions_model.ActionTask](ctx, job.TaskID)
+			task, _, err = db.GetByID[actions_model.ActionTask](ctx, effectiveTaskID)
 			if err != nil {
 				return nil, err
 			}
@@ -366,11 +500,11 @@ func ToActionWorkflowJob(ctx context.Context, repo *repo_model.Repository, task 
 	return &api.ActionWorkflowJob{
 		ID: job.ID,
 		// missing api endpoint for this location
-		URL:     fmt.Sprintf("%s/actions/jobs/%d", repo.APIURL(), job.ID),
-		HTMLURL: fmt.Sprintf("%s/jobs/%d", job.Run.HTMLURL(), job.ID),
+		URL:     fmt.Sprintf("%s/actions/jobs/%d", repo.APIURL(ctx), job.ID),
+		HTMLURL: fmt.Sprintf("%s/jobs/%d", job.Run.HTMLURL(ctx), job.ID),
 		RunID:   job.RunID,
 		// Missing api endpoint for this location, artifacts are available under a nested url
-		RunURL:      fmt.Sprintf("%s/actions/runs/%d", repo.APIURL(), job.RunID),
+		RunURL:      fmt.Sprintf("%s/actions/runs/%d", repo.APIURL(ctx), job.RunID),
 		Name:        job.Name,
 		Labels:      job.RunsOn,
 		RunAttempt:  job.Attempt,
@@ -421,7 +555,7 @@ func getActionWorkflowEntry(ctx context.Context, repo *repo_model.Repository, co
 	content, err := actions.GetContentFromEntry(entry)
 	name := entry.Name()
 	if err == nil {
-		workflow, err := model.ReadWorkflow(bytes.NewReader(content))
+		workflow, err := jobparser.ReadWorkflow(content)
 		if err == nil {
 			// Only use the name when specified in the workflow file
 			if workflow.Name != "" {
@@ -505,6 +639,64 @@ func getActionWorkflowFromCommit(ctx context.Context, repo *repo_model.Repositor
 	}
 
 	return nil, util.NewNotExistErrorf("workflow %q not found", workflowID)
+}
+
+// GetScopedActionWorkflow resolves a scoped workflow definition (under SCOPED_WORKFLOW_DIRS) from the source repo at commitSHA.
+func GetScopedActionWorkflow(ctx context.Context, sourceGitRepo *git.Repository, sourceRepo *repo_model.Repository, workflowID, commitSHA string) (*api.ActionWorkflow, error) {
+	commit, err := sourceGitRepo.GetCommit(commitSHA)
+	if err != nil {
+		return nil, err
+	}
+
+	folder, entries, err := actions.ListScopedWorkflows(commit)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range entries {
+		if entry.Name() == workflowID {
+			// An empty ref pins HTMLURL to commit (the run's WorkflowCommitSHA) rather than the moving default branch.
+			wf := getActionWorkflowEntry(ctx, sourceRepo, commit, git.RefName(""), folder, entry)
+			// TODO: a scoped workflow has no repo-level representation on the source: the workflow API scans WORKFLOW_DIRS (not SCOPED_WORKFLOW_DIRS),
+			// and the badge only reflects the source's repo-level runs, so neither link resolves a scoped workflow.
+			// Blank them for now and populate once a scoped-aware workflow/badge endpoint exists.
+			wf.URL = ""
+			wf.BadgeURL = ""
+			return wf, nil
+		}
+	}
+
+	return nil, util.NewNotExistErrorf("scoped workflow %q not found", workflowID)
+}
+
+// ResolveActionWorkflowForRun returns the api.ActionWorkflow describing a run's workflow definition.
+// For a scoped run the definition lives in the source repo (run.WorkflowRepoID @ run.WorkflowCommitSHA) under SCOPED_WORKFLOW_DIRS,
+// not in the consuming repo, so it is resolved against the source repo.
+func ResolveActionWorkflowForRun(ctx context.Context, repo *repo_model.Repository, run *actions_model.ActionRun) (*api.ActionWorkflow, error) {
+	if run.IsScopedRun {
+		sourceRepo, err := repo_model.GetRepositoryByID(ctx, run.WorkflowRepoID)
+		if err != nil {
+			return nil, err
+		}
+		sourceGitRepo, err := gitrepo.OpenRepository(ctx, sourceRepo)
+		if err != nil {
+			return nil, err
+		}
+		defer sourceGitRepo.Close()
+		return GetScopedActionWorkflow(ctx, sourceGitRepo, sourceRepo, run.WorkflowID, run.WorkflowCommitSHA)
+	}
+
+	gitRepo, err := gitrepo.OpenRepository(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+	defer gitRepo.Close()
+
+	convertedWorkflow, err := GetActionWorkflowByRef(ctx, gitRepo, repo, run.WorkflowID, git.RefName(run.Ref))
+	if err != nil && errors.Is(err, util.ErrNotExist) {
+		convertedWorkflow, err = GetActionWorkflow(ctx, gitRepo, repo, run.WorkflowID)
+	}
+	return convertedWorkflow, err
 }
 
 // ToActionArtifact convert a actions_model.ActionArtifact to an api.ActionArtifact
@@ -670,7 +862,7 @@ func ToOrganization(ctx context.Context, org *organization.Organization) *api.Or
 		Description:               org.Description,
 		Website:                   org.Website,
 		Location:                  org.Location,
-		Visibility:                org.Visibility.String(),
+		Visibility:                api.UserVisibility(org.Visibility.String()),
 		RepoAdminChangeTeamAccess: org.RepoAdminChangeTeamAccess,
 	}
 }
@@ -699,9 +891,10 @@ func ToTeams(ctx context.Context, teams []*organization.Team, loadOrgs bool) ([]
 			Description:             t.Description,
 			IncludesAllRepositories: t.IncludesAllRepositories,
 			CanCreateOrgRepo:        t.CanCreateOrgRepo,
-			Permission:              t.AccessMode.ToString(),
+			Permission:              api.AccessLevelName(t.AccessMode.ToString()),
 			Units:                   t.GetUnitNames(),
 			UnitsMap:                t.GetUnitsMap(),
+			Visibility:              api.TeamVisibility(t.Visibility.String()),
 		}
 
 		if loadOrgs {
@@ -728,7 +921,7 @@ func ToAnnotatedTag(ctx context.Context, repo *repo_model.Repository, t *git.Tag
 		Tag:          t.Name,
 		SHA:          t.ID.String(),
 		Object:       ToAnnotatedTagObject(repo, c),
-		Message:      strings.ToValidUTF8(t.Message, "?"),
+		Message:      t.MessageUTF8(),
 		URL:          repo.APIURL() + "/git/tags/" + t.ID.String(),
 		Tagger:       ToCommitUser(t.Tagger),
 		Verification: ToVerification(ctx, c),
@@ -746,7 +939,7 @@ func ToAnnotatedTagObject(repo *repo_model.Repository, commit *git.Commit) *api.
 
 // ToTagProtection convert a git.ProtectedTag to an api.TagProtection
 func ToTagProtection(ctx context.Context, pt *git_model.ProtectedTag, repo *repo_model.Repository) *api.TagProtection {
-	readers, err := access_model.GetUsersWithUnitAccess(ctx, repo, perm.AccessModeRead, unit.TypePullRequests)
+	readers, err := access_model.GetUsersWithAnyUnitAccess(ctx, repo, perm.AccessModeRead, unit.TypeCode, unit.TypePullRequests)
 	if err != nil {
 		log.Error("GetRepoReaders: %v", err)
 	}

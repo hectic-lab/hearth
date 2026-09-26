@@ -6,8 +6,8 @@ package user
 import (
 	"context"
 
-	"code.gitea.io/gitea/models/db"
-	"code.gitea.io/gitea/modules/util"
+	"gitea.dev/models/db"
+	"gitea.dev/modules/util"
 
 	"xorm.io/builder"
 	"xorm.io/xorm/schemas"
@@ -69,7 +69,7 @@ func GetBadgeUsers(ctx context.Context, opts *GetBadgeUsersOptions) ([]*User, in
 		Where("badge.slug=?", opts.BadgeSlug)
 
 	if opts.Page > 0 {
-		sess = db.SetSessionPagination(sess, opts)
+		db.SetSessionPagination(sess, opts)
 	}
 
 	users := make([]*User, 0, opts.PageSize)
@@ -212,12 +212,6 @@ func RemoveUserBadges(ctx context.Context, u *User, badges []*Badge) error {
 	})
 }
 
-// RemoveAllUserBadges removes all badges from a user.
-func RemoveAllUserBadges(ctx context.Context, u *User) error {
-	_, err := db.GetEngine(ctx).Where("user_id=?", u.ID).Delete(&UserBadge{})
-	return err
-}
-
 // SearchBadgeOptions represents the options when finding badges
 type SearchBadgeOptions struct {
 	db.ListOptions
@@ -257,17 +251,4 @@ func (opts *SearchBadgeOptions) ToOrders() string {
 // SearchBadges returns badges based on the provided SearchBadgeOptions options
 func SearchBadges(ctx context.Context, opts *SearchBadgeOptions) ([]*Badge, int64, error) {
 	return db.FindAndCount[Badge](ctx, opts)
-}
-
-// GetBadgeByID returns a specific badge by ID
-func GetBadgeByID(ctx context.Context, id int64) (*Badge, error) {
-	badge := new(Badge)
-	has, err := db.GetEngine(ctx).ID(id).Get(badge)
-	if err != nil {
-		return nil, err
-	}
-	if !has {
-		return nil, util.NewNotExistErrorf("badge does not exist [id: %d]", id)
-	}
-	return badge, nil
 }

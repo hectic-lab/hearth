@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"code.gitea.io/gitea/modules/git/gitcmd"
-	"code.gitea.io/gitea/modules/proxy"
+	"gitea.dev/modules/git/gitcmd"
+	"gitea.dev/modules/proxy"
 )
 
 const prettyLogFormat = `--pretty=format:%H`
@@ -121,6 +121,7 @@ func Clone(ctx context.Context, from, to string, opts CloneRepoOptions) error {
 	}
 
 	cmd := gitcmd.NewCommand().AddArguments("clone")
+	HandleGitCmdHTTPRedirection(cmd, from, to)
 	if opts.SkipTLSVerify {
 		cmd.AddArguments("-c", "http.sslVerify=false")
 	}

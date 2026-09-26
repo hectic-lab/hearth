@@ -9,18 +9,18 @@ import (
 	"os"
 	"strings"
 
-	asymkey_model "code.gitea.io/gitea/models/asymkey"
-	"code.gitea.io/gitea/models/auth"
-	"code.gitea.io/gitea/models/db"
-	git_model "code.gitea.io/gitea/models/git"
-	issues_model "code.gitea.io/gitea/models/issues"
-	repo_model "code.gitea.io/gitea/models/repo"
-	user_model "code.gitea.io/gitea/models/user"
-	"code.gitea.io/gitea/modules/git"
-	"code.gitea.io/gitea/modules/gitrepo"
-	"code.gitea.io/gitea/modules/log"
-	"code.gitea.io/gitea/modules/process"
-	"code.gitea.io/gitea/modules/setting"
+	asymkey_model "gitea.dev/models/asymkey"
+	"gitea.dev/models/auth"
+	"gitea.dev/models/db"
+	git_model "gitea.dev/models/git"
+	issues_model "gitea.dev/models/issues"
+	repo_model "gitea.dev/models/repo"
+	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/git"
+	"gitea.dev/modules/gitrepo"
+	"gitea.dev/modules/log"
+	"gitea.dev/modules/process"
+	"gitea.dev/modules/setting"
 )
 
 type signingMode string
@@ -270,19 +270,21 @@ Loop:
 	return true, signingKey, sig, nil
 }
 
-// SignMerge determines if we should sign a PR merge commit to the base repository
-func SignMerge(ctx context.Context, pr *issues_model.PullRequest, u *user_model.User, gitRepo *git.Repository) (bool, *git.SigningKey, *git.Signature, error) {
+// SignMerge determines if we should sign a PR merge commit to the base repository.
+// baseRef and headRef must resolve in gitRepo. Callers pass the temporary merge repo's own
+// refs for an update by merge, whose fake reverse PR has no head ref in the base repository.
+func SignMerge(ctx context.Context, pr *issues_model.PullRequest, u *user_model.User, gitRepo *git.Repository, baseRef, headRef string) (bool, *git.SigningKey, *git.Signature, error) {
 	if err := pr.LoadBaseRepo(ctx); err != nil {
 		log.Error("Unable to get Base Repo for pull request")
 		return false, nil, nil, err
 	}
 	repo := pr.BaseRepo
 
-	baseCommit, err := gitRepo.GetCommit(pr.BaseBranch)
+	baseCommit, err := gitRepo.GetCommit(baseRef)
 	if err != nil {
 		return false, nil, nil, err
 	}
-	headCommit, err := gitRepo.GetCommit(pr.GetGitHeadRefName())
+	headCommit, err := gitRepo.GetCommit(headRef)
 	if err != nil {
 		return false, nil, nil, err
 	}
@@ -338,26 +340,43 @@ Loop:
 				return false, nil, nil, &ErrWontSign{headSigned}
 			}
 		case commitsSigned:
-			verification := ParseCommitWithSignature(ctx, headCommit)
-			if !verification.Verified {
+			verified, err := allCommitsVerified(ctx, baseCommit, headCommit)
+			if err != nil {
+				return false, nil, nil, err
+			}
+			if !verified {
 				return false, nil, nil, &ErrWontSign{commitsSigned}
-			}
-			// need to work out merge-base
-			mergeBaseCommit, err := gitrepo.MergeBase(ctx, pr.BaseRepo, baseCommit.ID.String(), headCommit.ID.String())
-			if err != nil {
-				return false, nil, nil, err
-			}
-			commitList, err := headCommit.CommitsBeforeUntil(mergeBaseCommit)
-			if err != nil {
-				return false, nil, nil, err
-			}
-			for _, commit := range commitList {
-				verification := ParseCommitWithSignature(ctx, commit)
-				if !verification.Verified {
-					return false, nil, nil, &ErrWontSign{commitsSigned}
-				}
 			}
 		}
 	}
 	return true, signingKey, signer, nil
+}
+
+// AllHeadCommitsVerified checks that every new commit in the PR head has a
+// verified signature.
+func AllHeadCommitsVerified(ctx context.Context, pr *issues_model.PullRequest, gitRepo *git.Repository) (bool, error) {
+	baseCommit, err := gitRepo.GetCommit(pr.BaseBranch)
+	if err != nil {
+		return false, err
+	}
+	headCommit, err := gitRepo.GetCommit(pr.GetGitHeadRefName())
+	if err != nil {
+		return false, err
+	}
+	return allCommitsVerified(ctx, baseCommit, headCommit)
+}
+
+// allCommitsVerified checks the commits a merge would introduce, those reachable from
+// headCommit but not from baseCommit. Both commits must come from the same repository.
+func allCommitsVerified(ctx context.Context, baseCommit, headCommit *git.Commit) (bool, error) {
+	commitList, err := headCommit.CommitsBeforeUntil(baseCommit.ID.RefName())
+	if err != nil {
+		return false, err
+	}
+	for _, commit := range commitList {
+		if !ParseCommitWithSignature(ctx, commit).Verified {
+			return false, nil
+		}
+	}
+	return true, nil
 }

@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"testing"
 
-	auth_model "code.gitea.io/gitea/models/auth"
-	"code.gitea.io/gitea/models/unittest"
-	user_model "code.gitea.io/gitea/models/user"
-	api "code.gitea.io/gitea/modules/structs"
-	"code.gitea.io/gitea/tests"
+	auth_model "gitea.dev/models/auth"
+	"gitea.dev/models/unittest"
+	user_model "gitea.dev/models/user"
+	api "gitea.dev/modules/structs"
+	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -77,6 +77,9 @@ func TestUserOrgs(t *testing.T) {
 	orgs = getUserOrgs(t, unrelatedUsername, privateMemberUsername)
 	assert.Empty(t, orgs)
 
+	orgs = getUserOrgs(t, "user29", adminUsername)
+	assert.Empty(t, orgs)
+
 	// not authenticated call should not be allowed
 	testUserOrgsUnauthenticated(t, privateMemberUsername)
 }
@@ -89,7 +92,7 @@ func getUserOrgs(t *testing.T, userDoer, userCheck string) (orgs []*api.Organiza
 	req := NewRequest(t, "GET", fmt.Sprintf("/api/v1/users/%s/orgs", userCheck)).
 		AddTokenAuth(token)
 	resp := MakeRequest(t, req, http.StatusOK)
-	DecodeJSON(t, resp, &orgs)
+	orgs = DecodeJSON(t, resp, []*api.Organization{})
 	return orgs
 }
 
@@ -110,8 +113,7 @@ func TestMyOrgs(t *testing.T) {
 	req = NewRequest(t, "GET", "/api/v1/user/orgs").
 		AddTokenAuth(token)
 	resp := MakeRequest(t, req, http.StatusOK)
-	var orgs []*api.Organization
-	DecodeJSON(t, resp, &orgs)
+	orgs := DecodeJSON(t, resp, []*api.Organization{})
 	org3 := unittest.AssertExistsAndLoadBean(t, &user_model.User{Name: "org3"})
 	org17 := unittest.AssertExistsAndLoadBean(t, &user_model.User{Name: "org17"})
 	org35 := unittest.AssertExistsAndLoadBean(t, &user_model.User{Name: "private_org35"})

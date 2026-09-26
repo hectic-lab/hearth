@@ -7,13 +7,13 @@ import (
 	"context"
 	"fmt"
 
-	auth_model "code.gitea.io/gitea/models/auth"
-	"code.gitea.io/gitea/models/db"
-	user_model "code.gitea.io/gitea/models/user"
-	password_module "code.gitea.io/gitea/modules/auth/password"
-	"code.gitea.io/gitea/modules/optional"
-	"code.gitea.io/gitea/modules/setting"
-	"code.gitea.io/gitea/modules/structs"
+	auth_model "gitea.dev/models/auth"
+	"gitea.dev/models/db"
+	user_model "gitea.dev/models/user"
+	password_module "gitea.dev/modules/auth/password"
+	"gitea.dev/modules/optional"
+	"gitea.dev/modules/setting"
+	"gitea.dev/modules/structs"
 )
 
 type UpdateOptionField[T any] struct {
@@ -147,7 +147,8 @@ func UpdateUser(ctx context.Context, u *user_model.User, opts *UpdateOptions) er
 		}
 	}
 
-	if opts.Visibility.Has() {
+	// only validate and persist the visibility when it actually changes
+	if opts.Visibility.Has() && opts.Visibility.Value() != u.Visibility {
 		if !u.IsOrganization() && !setting.Service.AllowedUserVisibilityModesSlice.IsAllowedVisibility(opts.Visibility.Value()) {
 			return fmt.Errorf("visibility mode not allowed: %s", opts.Visibility.Value().String())
 		}

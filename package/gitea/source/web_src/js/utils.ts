@@ -75,11 +75,6 @@ export function parseIssuePageInfo(): IssuePageInfo {
   };
 }
 
-/** parse a URL, either relative '/path' or absolute 'https://localhost/path' */
-export function parseUrl(str: string): URL {
-  return new URL(str, str.startsWith('http') ? undefined : window.location.origin);
-}
-
 /** return current locale chosen by user */
 export function getCurrentLocale(): string {
   return document.documentElement.lang;
@@ -148,19 +143,6 @@ export function convertImage(blob: Blob, mime: string): Promise<Blob> {
   });
 }
 
-export function toAbsoluteUrl(url: string): string {
-  if (url.startsWith('http://') || url.startsWith('https://')) {
-    return url;
-  }
-  if (url.startsWith('//')) {
-    return `${window.location.protocol}${url}`; // it's also a somewhat absolute URL (with the current scheme)
-  }
-  if (url && !url.startsWith('/')) {
-    throw new Error('unsupported url, it should either start with / or http(s)://');
-  }
-  return `${window.location.origin}${url}`;
-}
-
 /** Encode an Uint8Array into a URLEncoded base64 string. */
 export function encodeURLEncodedBase64(uint8Array: Uint8Array): string {
   return encode(uint8Array)
@@ -197,6 +179,17 @@ export function isImageFile({name, type}: {name?: string, type?: string}): boole
 
 export function isVideoFile({name, type}: {name?: string, type?: string}): boolean {
   return Boolean(/\.(mpe?g|mp4|mkv|webm)$/i.test(name || '') || type?.startsWith('video/'));
+}
+
+const byteUnits = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB'];
+
+export function formatBytes(num: number, precision = 2): string {
+  if (!Number.isFinite(num) || num < 0) return `0 ${byteUnits[0]}`;
+  if (num < 1024) return `${num} ${byteUnits[0]}`;
+  const exp = Math.min(Math.floor(Math.log2(num) / 10), byteUnits.length - 1);
+  const value = num / (1024 ** exp);
+  const digits = Math.max(0, precision - 1 - Math.floor(Math.log10(value)));
+  return `${value.toFixed(digits)} ${byteUnits[exp]}`;
 }
 
 export function toggleFullScreen(fullScreenEl: HTMLElement, isFullScreen: boolean, sourceParentSelector?: string): void {

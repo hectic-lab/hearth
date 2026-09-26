@@ -17,11 +17,11 @@ import (
 	"strings"
 	"time"
 
-	"code.gitea.io/gitea/models/actions"
-	"code.gitea.io/gitea/models/db"
-	"code.gitea.io/gitea/modules/log"
-	"code.gitea.io/gitea/modules/setting"
-	"code.gitea.io/gitea/modules/storage"
+	"gitea.dev/models/actions"
+	"gitea.dev/models/db"
+	"gitea.dev/modules/log"
+	"gitea.dev/modules/setting"
+	"gitea.dev/modules/storage"
 )
 
 type saveUploadChunkOptions struct {
@@ -257,11 +257,12 @@ func listOrderedChunksForArtifact(st storage.ObjectStorage, runID, artifactID in
 	return emptyListAsError(chunks)
 }
 
-func mergeChunksForRun(ctx *ArtifactContext, st storage.ObjectStorage, runID int64, artifactName string) error {
+func mergeChunksForRun(ctx *ArtifactContext, st storage.ObjectStorage, runID, runAttemptID int64, artifactName string) error {
 	// read all db artifacts by name
 	artifacts, err := db.Find[actions.ActionArtifact](ctx, actions.FindArtifactsOptions{
-		RunID:        runID,
-		ArtifactName: artifactName,
+		RunID:         runID,
+		RunAttemptIDs: []int64{runAttemptID},
+		ArtifactName:  artifactName,
 	})
 	if err != nil {
 		return err

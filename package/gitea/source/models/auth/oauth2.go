@@ -15,11 +15,11 @@ import (
 	"strings"
 	"time"
 
-	"code.gitea.io/gitea/models/db"
-	"code.gitea.io/gitea/modules/container"
-	"code.gitea.io/gitea/modules/setting"
-	"code.gitea.io/gitea/modules/timeutil"
-	"code.gitea.io/gitea/modules/util"
+	"gitea.dev/models/db"
+	"gitea.dev/modules/container"
+	"gitea.dev/modules/setting"
+	"gitea.dev/modules/timeutil"
+	"gitea.dev/modules/util"
 
 	uuid "github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -82,6 +82,11 @@ func BuiltinApplications() map[string]*BuiltinOAuth2Application {
 		ConfigName:   "tea",
 		DisplayName:  "tea",
 		RedirectURIs: []string{"http://127.0.0.1", "https://127.0.0.1"},
+	}
+	m["b757811a-05c8-4c76-8d74-a5ee3d2073f2"] = &BuiltinOAuth2Application{
+		ConfigName:   "gitea-app",
+		DisplayName:  "Gitea App",
+		RedirectURIs: []string{"com.gitea.app://oauth/callback"},
 	}
 	return m
 }
@@ -198,10 +203,7 @@ var base32Lower = base32.NewEncoding(lowerBase32Chars).WithPadding(base32.NoPadd
 
 // GenerateClientSecret will generate the client secret and returns the plaintext and saves the hash at the database
 func (app *OAuth2Application) GenerateClientSecret(ctx context.Context) (string, error) {
-	rBytes, err := util.CryptoRandomBytes(32)
-	if err != nil {
-		return "", err
-	}
+	rBytes := util.CryptoRandomBytes(32)
 	// Add a prefix to the base32, this is in order to make it easier
 	// for code scanners to grab sensitive tokens.
 	clientSecret := "gto_" + base32Lower.EncodeToString(rBytes)
@@ -233,7 +235,7 @@ func (app *OAuth2Application) GetGrantByUserID(ctx context.Context, userID int64
 	return grant, nil
 }
 
-// CreateGrant generates a grant for an user
+// CreateGrant generates a grant for a user
 func (app *OAuth2Application) CreateGrant(ctx context.Context, userID int64, scope string) (*OAuth2Grant, error) {
 	grant := &OAuth2Grant{
 		ApplicationID: app.ID,
@@ -489,7 +491,7 @@ func GetOAuth2AuthorizationByCode(ctx context.Context, code string) (auth *OAuth
 
 //////////////////////////////////////////////////////
 
-// OAuth2Grant represents the permission of an user for a specific application to access resources
+// OAuth2Grant represents the permission of a user for a specific application to access resources
 type OAuth2Grant struct {
 	ID            int64              `xorm:"pk autoincr"`
 	UserID        int64              `xorm:"INDEX unique(user_application)"`
@@ -509,10 +511,7 @@ func (grant *OAuth2Grant) TableName() string {
 
 // GenerateNewAuthorizationCode generates a new authorization code for a grant and saves it to the database
 func (grant *OAuth2Grant) GenerateNewAuthorizationCode(ctx context.Context, redirectURI, codeChallenge, codeChallengeMethod string) (code *OAuth2AuthorizationCode, err error) {
-	rBytes, err := util.CryptoRandomBytes(32)
-	if err != nil {
-		return &OAuth2AuthorizationCode{}, err
-	}
+	rBytes := util.CryptoRandomBytes(32)
 	// Add a prefix to the base32, this is in order to make it easier
 	// for code scanners to grab sensitive tokens.
 	codeSecret := "gta_" + base32Lower.EncodeToString(rBytes)

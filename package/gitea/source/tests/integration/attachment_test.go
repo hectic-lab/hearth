@@ -14,14 +14,14 @@ import (
 	"strings"
 	"testing"
 
-	auth_model "code.gitea.io/gitea/models/auth"
-	repo_model "code.gitea.io/gitea/models/repo"
-	"code.gitea.io/gitea/modules/storage"
-	"code.gitea.io/gitea/modules/test"
-	"code.gitea.io/gitea/modules/web"
-	route_web "code.gitea.io/gitea/routers/web"
-	"code.gitea.io/gitea/services/context"
-	"code.gitea.io/gitea/tests"
+	auth_model "gitea.dev/models/auth"
+	repo_model "gitea.dev/models/repo"
+	"gitea.dev/modules/storage"
+	"gitea.dev/modules/test"
+	"gitea.dev/modules/web"
+	route_web "gitea.dev/routers/web"
+	"gitea.dev/services/context"
+	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -70,8 +70,7 @@ func testCreateAttachment(t *testing.T, session *TestSession, repoURL, issueOrRe
 	if expectedStatus != http.StatusOK {
 		return ""
 	}
-	var obj map[string]string
-	DecodeJSON(t, resp, &obj)
+	obj := DecodeJSON(t, resp, map[string]string{})
 	return obj["uuid"]
 }
 
@@ -107,18 +106,18 @@ func testUploadAttachmentDeleteTemp(t *testing.T) {
 	defer web.RouteMock(route_web.RouterMockPointBeforeWebRoutes, func(resp http.ResponseWriter, req *http.Request) {
 		tmpFileCountDuringUpload = countTmpFile()
 	})()
-	_ = testCreateIssueAttachment(t, session, "user2/repo1", "image.png", testGeneratePngBytes(), http.StatusOK)
+	_ = testCreateIssueAttachment(t, session, "/user2/repo1", "image.png", testGeneratePngBytes(), http.StatusOK)
 	assert.Equal(t, 1, tmpFileCountDuringUpload, "the temp file should exist when uploaded size exceeds the parse form's max memory")
 	assert.Equal(t, 0, countTmpFile(), "the temp file should be deleted after upload")
 }
 
 func testCreateAnonymousAttachment(t *testing.T) {
 	session := emptyTestSession(t)
-	testCreateIssueAttachment(t, session, "user2/repo1", "image.png", testGeneratePngBytes(), http.StatusSeeOther)
+	testCreateIssueAttachment(t, session, "/user2/repo1", "image.png", testGeneratePngBytes(), http.StatusSeeOther)
 }
 
 func testCreateUser2IssueAttachment(t *testing.T) {
-	const repoURL = "user2/repo1"
+	const repoURL = "/user2/repo1"
 	session := loginUser(t, "user2")
 	uuid := testCreateIssueAttachment(t, session, repoURL, "image.png", testGeneratePngBytes(), http.StatusOK)
 
@@ -172,6 +171,11 @@ func testGetAttachment(t *testing.T) {
 		{"PrivateAccessibleByUser", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12", true, user2Session, http.StatusOK},
 		{"RepoNotAccessibleByUser", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12", true, user8Session, http.StatusNotFound},
 		{"OrgNotAccessibleByUser", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a21", true, user8Session, http.StatusNotFound},
+		// draft release attachments must only be reachable by users with write access, even on a public repo
+		{"DraftReleaseByOwner", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a23", true, user2Session, http.StatusOK},
+		{"DraftReleaseByAdmin", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a23", true, adminSession, http.StatusOK},
+		{"DraftReleaseByNonCollaborator", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a23", true, user8Session, http.StatusNotFound},
+		{"DraftReleaseByAnonymous", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a23", true, emptySession, http.StatusNotFound},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -185,10 +189,30 @@ func testGetAttachment(t *testing.T) {
 			tc.session.MakeRequest(t, req, tc.want)
 		})
 	}
+
+	attachment, err := repo_model.GetAttachmentByUUID(t.Context(), "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12")
+	require.NoError(t, err)
+	defer func() {
+		attachment.RepoID = 2
+		require.NoError(t, repo_model.UpdateAttachmentByUUID(t.Context(), attachment, "repo_id"))
+	}()
+	for _, testCase := range []struct {
+		name   string
+		repoID int64
+	}{
+		{"RecordedRepository", 2},
+		{"LegacyMissingRepository", 0},
+	} {
+		t.Run("OtherRepositoryPath/"+testCase.name, func(t *testing.T) {
+			attachment.RepoID = testCase.repoID
+			require.NoError(t, repo_model.UpdateAttachmentByUUID(t.Context(), attachment, "repo_id"))
+			MakeRequest(t, NewRequest(t, "GET", "/user2/repo1/attachments/"+attachment.UUID), http.StatusNotFound)
+		})
+	}
 }
 
 func testDeleteAttachmentPermissions(t *testing.T) {
-	const repoURL = "user2/repo1"
+	const repoURL = "/user2/repo1"
 
 	ownerSession := loginUser(t, "user2")
 	readonlySession := loginUser(t, "user5")
@@ -202,14 +226,14 @@ func testDeleteAttachmentPermissions(t *testing.T) {
 	testCreateReleaseAttachment(t, readonlySession, repoURL, "reader-release.png", testGeneratePngBytes(), http.StatusNotFound)
 
 	crossRepoUUID := testCreateIssueAttachment(t, ownerSession, repoURL, "cross-repo.png", testGeneratePngBytes(), http.StatusOK)
-	testDeleteIssueAttachment(t, ownerSession, "user2/repo2", crossRepoUUID, http.StatusBadRequest)
+	testDeleteIssueAttachment(t, ownerSession, "/user2/repo2", crossRepoUUID, http.StatusBadRequest)
 	testDeleteIssueAttachment(t, ownerSession, repoURL, crossRepoUUID, http.StatusOK)
 
 	releaseUUID := testCreateReleaseAttachment(t, ownerSession, repoURL, "reader-release.png", testGeneratePngBytes(), http.StatusOK)
 	testDeleteReleaseAttachment(t, ownerSession, repoURL, releaseUUID, http.StatusOK)
 
 	// test deleting release attachment from another repo
-	testDeleteReleaseAttachment(t, ownerSession, "user2/repo2", crossRepoUUID, http.StatusBadRequest)
+	testDeleteReleaseAttachment(t, ownerSession, "/user2/repo2", crossRepoUUID, http.StatusBadRequest)
 }
 
 func TestAttachmentTokenScopes(t *testing.T) {

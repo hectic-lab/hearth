@@ -4,9 +4,11 @@
 package jobparser
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	"gitea.com/gitea/runner/act/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v4"
@@ -58,6 +60,11 @@ func TestParse(t *testing.T) {
 			options: nil,
 			wantErr: false,
 		},
+		{
+			name:    "continue_on_error_expr",
+			options: nil,
+			wantErr: false,
+		},
 	}
 	invalidFileTests := []struct {
 		name string
@@ -101,4 +108,87 @@ func TestParse(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestParseInterpolatesRunName(t *testing.T) {
+	workflow := func(runName string) []byte {
+		return []byte("name: t\nrun-name: \"" + runName + "\"\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps: [{run: echo}]\n")
+	}
+
+	for _, tt := range []struct{ name, runName, want string }{
+		{"bool", "${{ true }}", "true"},
+		{"int", "${{ 1 }}", "1"},
+		{"float", "${{ 1.0 }}", "1"},
+		{"null", "${{ null }}", ""},
+		{"object", `${{ fromJSON('{\"a\":1}') }}`, "Object"},
+		{"array", "${{ fromJSON('[1,2]') }}", "Array"},
+		{"context", "${{ github }}", "Object"},
+		{"surrounding literals", "run ${{ 1 }} now", "run 1 now"},
+		{"two expressions", "${{ 1 }}-${{ true }}", "1-true"},
+		{"closing brace inside a string", "${{ 'a}}b' }}", "a}}b"},
+		{"incomplete expression stays literal", "${{ 1", "${{ 1"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := Parse(workflow(tt.runName), WithGitContext(&model.GithubContext{EventName: "push"}))
+			require.NoError(t, err)
+			require.Len(t, result, 1)
+			assert.Equal(t, tt.want, result[0].RunName)
+		})
+	}
+
+	// a malformed part must not restructure the surrounding expression
+	for _, runName := range []string{"${{ 1) && (2 }}", "run ${{ 1) && (2 }} now", "${{ 'a' }} ${{ b", "${{ 'a }}"} {
+		_, err := Parse(workflow(runName), WithGitContext(&model.GithubContext{EventName: "push"}))
+		assert.ErrorContains(t, err, "interpolate run-name")
+	}
+
+	// callers such as commit status parse without a git context, leaving `github` a nil pointer
+	result, err := Parse(workflow("${{ github }}"))
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Empty(t, result[0].RunName)
+}
+
+func TestRejectsUnevaluatedMatrixFilters(t *testing.T) {
+	// An unevaluated ${{ }} expression is still a scalar, which act cannot apply as a filter: it used
+	// to reach the expansion and panic there on an unchecked type assertion, taking down the file view
+	// and the push_update queue.
+	const workflow = `
+name: t
+on: push
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      m: ${{ steps.s.outputs.m }}
+    steps: [{id: s, run: echo}]
+  build:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        %s
+    steps: [{run: echo}]
+`
+	for _, tt := range []struct {
+		name   string
+		matrix string
+	}{
+		{name: "include expression", matrix: "include: ${{ fromJson(needs.setup.outputs.m) }}"},
+		{name: "exclude expression", matrix: "os: [a, b]\n        exclude: ${{ fromJson(vars.MATRIX) }}"},
+		{name: "include scalar", matrix: "include: whatever"},
+		{name: "include list of scalars", matrix: "include: [a, b]"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NotPanics(t, func() {
+				_, err := Parse(fmt.Appendf(nil, workflow, tt.matrix))
+				require.ErrorContains(t, err, "must be a list of mappings")
+			})
+		})
+	}
+
+	// a well-formed include/exclude keeps expanding
+	planned, err := Parse(fmt.Appendf(nil, workflow, "os: [a, b]\n        include:\n          - os: c\n        exclude:\n          - os: b"))
+	require.NoError(t, err)
+	assert.Len(t, planned, 3) // setup, plus build for os a and c
 }

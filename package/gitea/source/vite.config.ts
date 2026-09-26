@@ -38,11 +38,25 @@ const webComponents = new Set([
   'text-expander',
 ]);
 
+function failOnWarningsPlugin(): Rolldown.Plugin {
+  let warningCount = 0;
+  return {
+    name: 'fail-on-warnings',
+    onLog(level) {
+      if (level === 'warn') warningCount++;
+    },
+    closeBundle() {
+      if (!warningCount) return;
+      throw new Error(`${warningCount} warnings present`);
+    },
+  };
+}
+
 const commonRolldownOptions: Rolldown.RolldownOptions = {
   checks: {
-    eval: false, // htmx needs eval
     pluginTimings: false,
   },
+  ...(env.CI && {plugins: [failOnWarningsPlugin()]}),
 };
 
 function commonViteOpts({build, ...other}: InlineConfig): InlineConfig {
@@ -253,7 +267,6 @@ export default defineConfig(commonViteOpts({
     manifest: true,
     rolldownOptions: {
       input: {
-        // FIXME: INCORRECT-VITE-MANIFEST-PARSER: the "css importing" logic in backend is wrong
         index: join(import.meta.dirname, 'web_src/js/index.ts'),
         swagger: join(import.meta.dirname, 'web_src/js/swagger.ts'),
         'external-render-frontend': join(import.meta.dirname, 'web_src/js/external-render-frontend.ts'),

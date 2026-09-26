@@ -4,25 +4,33 @@
 package jobparser
 
 import (
-	"bytes"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
-	"github.com/nektos/act/pkg/exprparser"
-	"github.com/nektos/act/pkg/model"
+	"gitea.com/gitea/runner/act/exprparser"
+	"gitea.com/gitea/runner/act/model"
+	"github.com/rhysd/actionlint"
 	"go.yaml.in/yaml/v4"
 )
 
 func Parse(content []byte, options ...ParseOption) ([]*SingleWorkflow, error) {
-	origin, err := model.ReadWorkflow(bytes.NewReader(content))
+	// The workflow is split into one document per job below, which would strand an alias whose
+	// anchor lands in another one.
+	doc, err := resolveYamlAliases(content)
 	if err != nil {
-		return nil, fmt.Errorf("model.ReadWorkflow: %w", err)
+		return nil, fmt.Errorf("resolve aliases: %w", err)
+	}
+
+	origin, err := readWorkflowDoc(doc)
+	if err != nil {
+		return nil, fmt.Errorf("read workflow: %w", err)
 	}
 
 	workflow := &SingleWorkflow{}
-	if err := yaml.Unmarshal(content, workflow); err != nil {
-		return nil, fmt.Errorf("yaml.Unmarshal: %w", err)
+	if err := decodeYamlDoc(doc, workflow); err != nil {
+		return nil, fmt.Errorf("decode workflow: %w", err)
 	}
 
 	pc := &parseContext{}
@@ -48,7 +56,9 @@ func Parse(content []byte, options ...ParseOption) ([]*SingleWorkflow, error) {
 	}
 
 	evaluator := NewExpressionEvaluator(exprparser.NewInterpeter(&exprparser.EvaluationEnvironment{Github: pc.gitContext, Vars: pc.vars, Inputs: pc.inputs}, exprparser.Config{}))
-	workflow.RunName = evaluator.Interpolate(workflow.RunName)
+	if workflow.RunName, err = evaluator.interpolate(workflow.RunName); err != nil {
+		return nil, fmt.Errorf("interpolate run-name: %w", err)
+	}
 
 	for i, id := range ids {
 		job := jobs[i]
@@ -63,12 +73,19 @@ func Parse(content []byte, options ...ParseOption) ([]*SingleWorkflow, error) {
 			}
 			job.Strategy.RawMatrix = encodeMatrix(matrix)
 			evaluator := NewExpressionEvaluator(NewInterpeter(id, origin.GetJob(id), matrix, pc.gitContext, results, pc.vars, pc.inputs))
-			job.Name = nameWithMatrix(job.Name, matrix, evaluator)
+			if job.Name, err = nameWithMatrix(job.Name, matrix, evaluator); err != nil {
+				return nil, fmt.Errorf("interpolate name for job %q: %w", id, err)
+			}
 			runsOn := origin.GetJob(id).RunsOn()
 			for i, v := range runsOn {
-				runsOn[i] = evaluator.Interpolate(v)
+				if runsOn[i], err = evaluator.interpolate(v); err != nil {
+					return nil, fmt.Errorf("interpolate runs-on for job %q: %w", id, err)
+				}
 			}
 			job.RawRunsOn = encodeRunsOn(runsOn)
+			if err := evaluator.EvaluateYamlNode(&job.RawContinueOnError); err != nil {
+				return nil, fmt.Errorf("evaluate continue-on-error for job %q: %w", id, err)
+			}
 			swf := &SingleWorkflow{
 				Name:           workflow.Name,
 				RawOn:          workflow.RawOn,
@@ -84,12 +101,6 @@ func Parse(content []byte, options ...ParseOption) ([]*SingleWorkflow, error) {
 		}
 	}
 	return ret, nil
-}
-
-func WithJobResults(results map[string]string) ParseOption {
-	return func(c *parseContext) {
-		c.jobResults = results
-	}
 }
 
 func WithGitContext(context *model.GithubContext) ParseOption {
@@ -120,6 +131,9 @@ type parseContext struct {
 type ParseOption func(c *parseContext)
 
 func getMatrixes(job *model.Job) ([]map[string]any, error) {
+	if err := validateMatrixFilters(job); err != nil {
+		return nil, err
+	}
 	ret, err := job.GetMatrixes()
 	if err != nil {
 		return nil, fmt.Errorf("GetMatrixes: %w", err)
@@ -128,6 +142,32 @@ func getMatrixes(job *model.Job) ([]map[string]any, error) {
 		return matrixName(ret[i]) < matrixName(ret[j])
 	})
 	return ret, nil
+}
+
+// validateMatrixFilters rejects an `include`/`exclude` that is not a list of mappings, so that the
+// usual way to get there, an unevaluated ${{ }} expression that is still a scalar, is named as such
+// instead of panicking inside the expansion.
+func validateMatrixFilters(job *model.Job) error {
+	if job.Strategy == nil || job.Strategy.RawMatrix.Kind != yaml.MappingNode {
+		return nil
+	}
+	content := job.Strategy.RawMatrix.Content
+	for i := 0; i+1 < len(content); i += 2 {
+		name, value := content[i].Value, content[i+1]
+		if name != "include" && name != "exclude" {
+			continue
+		}
+		entries := []*yaml.Node{value}
+		if value.Kind == yaml.SequenceNode {
+			entries = value.Content
+		}
+		for _, entry := range entries {
+			if entry.Kind != yaml.MappingNode {
+				return fmt.Errorf("matrix %s must be a list of mappings", name)
+			}
+		}
+	}
+	return nil
 }
 
 func encodeMatrix(matrix map[string]any) yaml.Node {
@@ -153,16 +193,45 @@ func encodeRunsOn(runsOn []string) yaml.Node {
 	return node
 }
 
-func nameWithMatrix(name string, m map[string]any, evaluator *ExpressionEvaluator) string {
+func nameWithMatrix(name string, m map[string]any, evaluator *ExpressionEvaluator) (string, error) {
 	if len(m) == 0 {
-		return name
+		return name, nil
 	}
 
 	if !strings.Contains(name, "${{") || !strings.Contains(name, "}}") {
-		return name + " " + matrixName(m)
+		return name + " " + matrixName(m), nil
 	}
 
-	return evaluator.Interpolate(name)
+	return evaluator.interpolate(name)
+}
+
+// expressionCallsFunction reports whether any ${{ }} expression in value calls one of the functions.
+func expressionCallsFunction(value string, names ...string) bool {
+	parts, err := splitSubExpressions(value)
+	if err != nil {
+		return true // unparseable here, let the expansion report it against the real values
+	}
+	for _, part := range parts {
+		if !part.isExpr {
+			continue
+		}
+		// The lexer needs the closing `}}` that the scanner strips.
+		expr, err := actionlint.NewExprParser().Parse(actionlint.NewExprLexer(part.text + "}}"))
+		if err != nil {
+			return true // unparseable here, let the expansion report it against the real values
+		}
+		found := false
+		actionlint.VisitExprNode(expr, func(node, _ actionlint.ExprNode, entering bool) {
+			call, ok := node.(*actionlint.FuncCallNode)
+			if entering && ok && slices.Contains(names, strings.ToLower(call.Callee)) {
+				found = true
+			}
+		})
+		if found {
+			return true
+		}
+	}
+	return false
 }
 
 func matrixName(m map[string]any) string {

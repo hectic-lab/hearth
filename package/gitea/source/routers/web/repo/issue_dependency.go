@@ -6,10 +6,10 @@ package repo
 import (
 	"net/http"
 
-	issues_model "code.gitea.io/gitea/models/issues"
-	access_model "code.gitea.io/gitea/models/perm/access"
-	"code.gitea.io/gitea/modules/setting"
-	"code.gitea.io/gitea/services/context"
+	issues_model "gitea.dev/models/issues"
+	access_model "gitea.dev/models/perm/access"
+	"gitea.dev/modules/setting"
+	"gitea.dev/services/context"
 )
 
 // AddDependency adds new dependencies
@@ -35,7 +35,11 @@ func AddDependency(ctx *context.Context) {
 	}
 
 	// Redirect
-	defer ctx.Redirect(issue.Link())
+	defer func() {
+		if !ctx.Written() {
+			ctx.Redirect(issue.Link())
+		}
+	}()
 
 	// Dependency
 	dep, err := issues_model.GetIssueByID(ctx, depID)
@@ -130,9 +134,29 @@ func RemoveDependency(ctx *context.Context) {
 		return
 	}
 
+	// Existing cross-repo dependencies must remain removable even when
+	// AllowCrossRepositoryDependencies is disabled, so only enforce that the
+	// doer can read the dependency's repository.
+	if issue.RepoID != dep.RepoID {
+		if err := dep.LoadRepo(ctx); err != nil {
+			ctx.ServerError("loadRepo", err)
+			return
+		}
+		depRepoPerm, err := access_model.GetDoerRepoPermission(ctx, dep.Repo, ctx.Doer)
+		if err != nil {
+			ctx.ServerError("GetDoerRepoPermission", err)
+			return
+		}
+		if !depRepoPerm.CanReadIssuesOrPulls(dep.IsPull) {
+			ctx.Redirect(issue.Link())
+			return
+		}
+	}
+
 	if err = issues_model.RemoveIssueDependency(ctx, ctx.Doer, issue, dep, depType); err != nil {
 		if issues_model.IsErrDependencyNotExists(err) {
 			ctx.Flash.Error(ctx.Tr("repo.issues.dependency.add_error_dep_not_exist"))
+			ctx.Redirect(issue.Link())
 			return
 		}
 		ctx.ServerError("RemoveIssueDependency", err)

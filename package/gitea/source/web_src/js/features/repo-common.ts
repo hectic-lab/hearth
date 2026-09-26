@@ -1,4 +1,5 @@
 import {queryElems} from '../utils/dom.ts';
+import {errorMessage} from '../modules/errors.ts';
 import {POST} from '../modules/fetch.ts';
 import {showErrorToast} from '../modules/toast.ts';
 import {sleep} from '../utils.ts';
@@ -22,10 +23,10 @@ async function onDownloadArchive(e: Event) {
       if (data.complete) break;
       await sleep(Math.min((tryCount + 1) * 750, 2000));
     }
-    window.location.href = el.href; // the archive is ready, start real downloading
+    window.location.assign(el.href); // the archive is ready, start real downloading
   } catch (e) {
     console.error(e);
-    showErrorToast(`Failed to download the archive: ${e}`, {duration: 2500});
+    showErrorToast(`Failed to download the archive: ${errorMessage(e)}`, {duration: 2500});
   } finally {
     targetLoading.classList.remove('is-loading', 'loading-icon-2px');
   }

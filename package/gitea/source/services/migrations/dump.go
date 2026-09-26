@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -16,17 +15,17 @@ import (
 	"strings"
 	"time"
 
-	user_model "code.gitea.io/gitea/models/user"
-	"code.gitea.io/gitea/modules/git"
-	"code.gitea.io/gitea/modules/git/gitcmd"
-	"code.gitea.io/gitea/modules/log"
-	base "code.gitea.io/gitea/modules/migration"
-	"code.gitea.io/gitea/modules/repository"
-	"code.gitea.io/gitea/modules/setting"
-	"code.gitea.io/gitea/modules/structs"
+	user_model "gitea.dev/models/user"
+	"gitea.dev/modules/git"
+	"gitea.dev/modules/git/gitcmd"
+	"gitea.dev/modules/log"
+	base "gitea.dev/modules/migration"
+	"gitea.dev/modules/repository"
+	"gitea.dev/modules/setting"
+	"gitea.dev/modules/structs"
 
 	"github.com/google/uuid"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v4"
 )
 
 var _ base.Uploader = &RepositoryDumper{}
@@ -115,6 +114,7 @@ func (g *RepositoryDumper) CreateRepo(ctx context.Context, repo *base.Repository
 		"name":         repo.Name,
 		"owner":        repo.Owner,
 		"description":  repo.Description,
+		"website":      repo.Website,
 		"clone_addr":   opts.CloneAddr,
 		"original_url": repo.OriginalURL,
 		"is_private":   opts.Private,
@@ -309,7 +309,9 @@ func (g *RepositoryDumper) CreateReleases(_ context.Context, releases ...*base.R
 						}
 						defer rc.Close()
 					} else {
-						resp, err := http.Get(*asset.DownloadURL)
+						// use the migration client so the fetch (including any redirect) is
+						// validated against the migration host allow/block list
+						resp, err := getMigrationHTTPClient().Get(*asset.DownloadURL)
 						if err != nil {
 							return err
 						}
@@ -449,8 +451,10 @@ func (g *RepositoryDumper) handlePullRequest(ctx context.Context, pr *base.PullR
 		}
 
 		// SECURITY: We will assume that the pr.PatchURL has been checked
-		// pr.PatchURL maybe a local file - but note EnsureSafe should be asserting that this safe
-		resp, err := http.Get(u) // TODO: This probably needs to use the downloader as there may be rate limiting issues here
+		// pr.PatchURL maybe a local file - but note EnsureSafe should be asserting that this safe.
+		// Use the migration client so an http(s) PatchURL (and any redirect it follows) is
+		// validated against the migration host allow/block list at dial time.
+		resp, err := getMigrationHTTPClient().Get(u)
 		if err != nil {
 			return err
 		}

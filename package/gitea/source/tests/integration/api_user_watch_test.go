@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"testing"
 
-	auth_model "code.gitea.io/gitea/models/auth"
-	"code.gitea.io/gitea/models/unittest"
-	user_model "code.gitea.io/gitea/models/user"
-	api "code.gitea.io/gitea/modules/structs"
-	"code.gitea.io/gitea/tests"
+	auth_model "gitea.dev/models/auth"
+	"gitea.dev/models/unittest"
+	user_model "gitea.dev/models/user"
+	api "gitea.dev/modules/structs"
+	"gitea.dev/tests"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -50,8 +50,7 @@ func TestAPIWatch(t *testing.T) {
 
 		assert.Equal(t, "1", resp.Header().Get("X-Total-Count"))
 
-		var repos []api.Repository
-		DecodeJSON(t, resp, &repos)
+		repos := DecodeJSON(t, resp, []api.Repository{})
 		assert.Len(t, repos, 1)
 		assert.Equal(t, repo, repos[0].FullName)
 	})
@@ -65,8 +64,7 @@ func TestAPIWatch(t *testing.T) {
 
 		assert.Equal(t, "1", resp.Header().Get("X-Total-Count"))
 
-		var repos []api.Repository
-		DecodeJSON(t, resp, &repos)
+		repos := DecodeJSON(t, resp, []api.Repository{})
 		assert.Len(t, repos, 1)
 		assert.Equal(t, repo, repos[0].FullName)
 	})

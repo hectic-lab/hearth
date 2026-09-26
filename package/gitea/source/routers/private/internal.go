@@ -6,19 +6,19 @@ package private
 
 import (
 	"crypto/subtle"
+	"net"
 	"net/http"
 	"strings"
 
-	"code.gitea.io/gitea/modules/log"
-	"code.gitea.io/gitea/modules/private"
-	"code.gitea.io/gitea/modules/setting"
-	"code.gitea.io/gitea/modules/web"
-	"code.gitea.io/gitea/routers/common"
-	"code.gitea.io/gitea/routers/web/misc"
-	"code.gitea.io/gitea/services/context"
+	"gitea.dev/modules/log"
+	"gitea.dev/modules/private"
+	"gitea.dev/modules/setting"
+	"gitea.dev/modules/web"
+	"gitea.dev/routers/common"
+	"gitea.dev/routers/web/misc"
+	"gitea.dev/services/context"
 
 	"gitea.com/go-chi/binding"
-	chi_middleware "github.com/go-chi/chi/v5/middleware"
 )
 
 func authInternal(next http.Handler) http.Handler {
@@ -50,6 +50,18 @@ func bind[T any](_ T) any {
 	}
 }
 
+// setRealIP sets RemoteAddr from the trusted X-Real-IP header set by the internal API
+// client (see modules/private.NewInternalRequest); the internal API is gated by InternalToken.
+// It replaces chi's deprecated middleware.RealIP, which is unsafe on public-facing endpoints.
+func setRealIP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if ip := req.Header.Get("X-Real-IP"); net.ParseIP(ip) != nil {
+			req.RemoteAddr = ip
+		}
+		next.ServeHTTP(w, req)
+	})
+}
+
 // Routes registers all internal APIs routes to web application.
 // These APIs will be invoked by internal commands for example `gitea serv` and etc.
 func Routes() *web.Router {
@@ -58,7 +70,7 @@ func Routes() *web.Router {
 	r.AfterRouting(authInternal)
 	// Log the real ip address of the request from SSH is really helpful for diagnosing sometimes.
 	// Since internal API will be sent only from Gitea sub commands and it's under control (checked by InternalToken), we can trust the headers.
-	r.AfterRouting(chi_middleware.RealIP)
+	r.AfterRouting(setRealIP)
 
 	r.Get("/dummy", misc.DummyOK)
 	r.Post("/ssh/authorized_keys", AuthorizedPublicKeyByContent)
@@ -67,7 +79,6 @@ func Routes() *web.Router {
 	r.Post("/hook/pre-receive/{owner}/{repo}", RepoAssignment, bind(private.HookOptions{}), HookPreReceive)
 	r.Post("/hook/post-receive/{owner}/{repo}", context.OverrideContext(), bind(private.HookOptions{}), HookPostReceive)
 	r.Post("/hook/proc-receive/{owner}/{repo}", context.OverrideContext(), RepoAssignment, bind(private.HookOptions{}), HookProcReceive)
-	r.Post("/hook/set-default-branch/{owner}/{repo}/{branch}", RepoAssignment, SetDefaultBranch)
 	r.Get("/serv/none/{keyid}", ServNoCommand)
 	r.Get("/serv/command/{keyid}/{owner}/{repo}", ServCommand)
 	r.Post("/manager/shutdown", Shutdown)
@@ -78,8 +89,6 @@ func Routes() *web.Router {
 	r.Post("/manager/resume-logging", ResumeLogging)
 	r.Post("/manager/release-and-reopen-logging", ReleaseReopenLogging)
 	r.Post("/manager/set-log-sql", SetLogSQL)
-	r.Post("/manager/add-logger", bind(private.LoggerOptions{}), AddLogger)
-	r.Post("/manager/remove-logger/{logger}/{writer}", RemoveLogger)
 	r.Get("/manager/processes", Processes)
 	r.Post("/mail/send", SendEmail)
 	r.Post("/restore_repo", RestoreRepo)

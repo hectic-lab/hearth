@@ -8,18 +8,20 @@ import (
 	"context"
 	"fmt"
 
-	"code.gitea.io/gitea/models/db"
-	issues_model "code.gitea.io/gitea/models/issues"
-	"code.gitea.io/gitea/models/perm"
-	access_model "code.gitea.io/gitea/models/perm/access"
-	repo_model "code.gitea.io/gitea/models/repo"
-	user_model "code.gitea.io/gitea/models/user"
+	"gitea.dev/models/db"
+	issues_model "gitea.dev/models/issues"
+	"gitea.dev/models/perm"
+	access_model "gitea.dev/models/perm/access"
+	repo_model "gitea.dev/models/repo"
+	user_model "gitea.dev/models/user"
 
 	"xorm.io/builder"
 )
 
 func AddOrUpdateCollaborator(ctx context.Context, repo *repo_model.Repository, u *user_model.User, mode perm.AccessMode) error {
-	// only allow valid access modes, read, write and admin
+	// Only allow valid access modes, read, write and admin
+	// Keep in mind: do not allow "owner" here: because "admin" user can update collaborators but not make dangerous operations.
+	// If the "admin" user updates a user to "owner", then it means that the admin user can use owner permission, which is not expected.
 	if mode < perm.AccessModeRead || mode > perm.AccessModeAdmin {
 		return perm.ErrInvalidAccessMode
 	}
@@ -100,7 +102,7 @@ func DeleteCollaboration(ctx context.Context, repo *repo_model.Repository, colla
 }
 
 func ReconsiderRepoIssuesAssignee(ctx context.Context, repo *repo_model.Repository, user *user_model.User) error {
-	if canAssigned, err := access_model.CanBeAssigned(ctx, user, repo, true); err != nil || canAssigned {
+	if canAssigned, err := access_model.CanBeAssigned(ctx, user, repo); err != nil || canAssigned {
 		return err
 	}
 
