@@ -2,6 +2,7 @@ savePrefix: ''
 dedupePeerDependents: false
 updateNotifier: false
 minimumReleaseAge: 0
+trustLockfile: true
 
 allowBuilds:
   '@scarf/scarf': false

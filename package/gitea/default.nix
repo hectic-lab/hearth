@@ -32,14 +32,16 @@ let
       chmod +x bin/pnpm.cjs bin/pnpx.cjs
     '';
   });
-  pnpmForNix = (writeShellScriptBin "pnpm" ''
+  pnpmForNix = ((writeShellScriptBin "pnpm" ''
     if [ "''${1-}" = config ] && [ "''${2-}" = set ] && [ "''${3-}" = manage-package-manager-versions ]; then
       exit 0
     fi
     exec ${pnpm}/bin/pnpm "$@"
   '').overrideAttrs (_: {
     version = "11.9.0";
-  });
+  })) // {
+    nodejs-slim = nodejs;
+  };
   pnpmPreInstall = ''
     export NODE_OPTIONS=--dns-result-order=ipv4first
   '';
@@ -52,9 +54,9 @@ let
       pname = "gitea-frontend";
       inherit version src;
       pnpm = pnpmForNix;
-      fetcherVersion = 3;
+      fetcherVersion = 4;
       prePnpmInstall = pnpmPreInstall;
-      hash = "sha256-rXJmmnaA61YoN7xrmA18MBLFpRRMhWd4gwXGVd5eKpU=";
+      hash = "sha256-rduD3GqgdUlF95HTnKe8smToyHop4RrO6QDTRzh2RCk=";
     };
 
     prePnpmInstall = pnpmPreInstall;
@@ -88,20 +90,15 @@ buildGo126Module rec {
 
   patches = [ ./static-root-path.patch ];
 
-  overrideModAttrs = _: {
-    postPatch = ''
-      substituteInPlace go.mod \
-        --replace-fail "go 1.26.4" "go 1.26"
-    '';
-  };
-
   postPatch = ''
     substituteInPlace modules/setting/server.go --subst-var data
-    substituteInPlace go.mod \
-      --replace-fail "go 1.26.4" "go 1.26"
   '';
 
   subPackages = [ "." ];
+
+  postBuild = ''
+    mv "$GOPATH/bin/gitea.dev" "$GOPATH/bin/gitea"
+  '';
 
   nativeBuildInputs = [ makeWrapper ];
 
