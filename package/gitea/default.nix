@@ -2,14 +2,12 @@
   lib,
   buildGo126Module,
   makeWrapper,
-  writeShellScriptBin,
   git,
   bash,
   coreutils,
   gzip,
   nodejs,
   openssh,
-  fetchurl,
   fetchPnpmDeps,
   pnpmConfigHook,
   pnpm_10,
@@ -20,31 +18,9 @@
 
 let
   pname = "gitea";
-  version = "1.27.3";
+  version = "1.26.2";
   src = ./source;
-  pnpm = pnpm_10.overrideAttrs (_: {
-    version = "11.9.0";
-    src = fetchurl {
-      url = "https://registry.npmjs.org/pnpm/-/pnpm-11.9.0.tgz";
-      hash = "sha256-K1Z6pmAmI4B4rC4KM77D/r1g6WKYeqxpdFbzGAgZsoc=";
-    };
-    postPatch = ''
-      chmod +x bin/pnpm.cjs bin/pnpx.cjs
-    '';
-  });
-  pnpmForNix = ((writeShellScriptBin "pnpm" ''
-    if [ "''${1-}" = config ] && [ "''${2-}" = set ] && [ "''${3-}" = manage-package-manager-versions ]; then
-      exit 0
-    fi
-    exec ${pnpm}/bin/pnpm "$@"
-  '').overrideAttrs (_: {
-    version = "11.9.0";
-  })) // {
-    nodejs-slim = nodejs;
-  };
-  pnpmPreInstall = ''
-    export NODE_OPTIONS=--dns-result-order=ipv4first
-  '';
+  pnpm = pnpm_10;
 
   frontend = stdenv.mkDerivation {
     pname = "gitea-frontend";
@@ -53,18 +29,15 @@ let
     pnpmDeps = fetchPnpmDeps {
       pname = "gitea-frontend";
       inherit version src;
-      pnpm = pnpmForNix;
-      fetcherVersion = 4;
-      prePnpmInstall = pnpmPreInstall;
-      hash = "sha256-rduD3GqgdUlF95HTnKe8smToyHop4RrO6QDTRzh2RCk=";
+      inherit pnpm;
+      fetcherVersion = 3;
+      hash = "sha256-Qo0DLuZv+2GVLsBfCv/6CC9E/qhSE4HwV4StQL4HX4Y=";
     };
-
-    prePnpmInstall = pnpmPreInstall;
 
     nativeBuildInputs = [
       nodejs
       pnpmConfigHook
-      pnpmForNix
+      pnpm
     ];
 
     buildPhase = ''
@@ -81,7 +54,7 @@ buildGo126Module rec {
   inherit pname version src;
 
   proxyVendor = true;
-  vendorHash = "sha256-YRBMGWKIZgMxOXaXG2bIBj1XzkhSwiMyfRy+yQGw+Bo=";
+  vendorHash = "sha256-7+M1n8RSgB3gZ/2na4RF9kYOf90H0bnsJZMDKpgAy64=";
 
   outputs = [
     "out"
@@ -90,15 +63,20 @@ buildGo126Module rec {
 
   patches = [ ./static-root-path.patch ];
 
+  overrideModAttrs = _: {
+    postPatch = ''
+      substituteInPlace go.mod \
+        --replace-fail "go 1.26.3" "go 1.26"
+    '';
+  };
+
   postPatch = ''
     substituteInPlace modules/setting/server.go --subst-var data
+    substituteInPlace go.mod \
+      --replace-fail "go 1.26.3" "go 1.26"
   '';
 
   subPackages = [ "." ];
-
-  postBuild = ''
-    mv "$GOPATH/bin/gitea.dev" "$GOPATH/bin/gitea"
-  '';
 
   nativeBuildInputs = [ makeWrapper ];
 
