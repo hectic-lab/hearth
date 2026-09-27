@@ -5,100 +5,172 @@ package project
 
 import (
 	"context"
-	"errors"
+	"math"
 	"slices"
 	"strings"
+	"sync"
 
 	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
 	project_model "gitea.dev/models/project"
 	user_model "gitea.dev/models/user"
 	"gitea.dev/modules/optional"
+	"gitea.dev/modules/util"
 
 	"xorm.io/builder"
 )
 
+var projectIssueMoveMu sync.Mutex
+
 // MoveIssuesOnProjectColumn moves or keeps issues in a column and sorts them inside that column
 func MoveIssuesOnProjectColumn(ctx context.Context, doer *user_model.User, column *project_model.Column, sortedIssueIDs map[int64]int64) error {
 	return db.WithTx(ctx, func(ctx context.Context) error {
-		issueIDs := make([]int64, 0, len(sortedIssueIDs))
-		for _, issueID := range sortedIssueIDs {
-			issueIDs = append(issueIDs, issueID)
-		}
-		count, err := db.GetEngine(ctx).
-			Where("project_id=?", column.ProjectID).
-			In("issue_id", issueIDs).
-			Count(new(project_model.ProjectIssue))
+		return moveIssuesOnProjectColumn(ctx, doer, column, sortedIssueIDs)
+	})
+}
+
+// MoveIssueOnProjectColumn appends or positions one issue atomically.
+func MoveIssueOnProjectColumn(ctx context.Context, doer *user_model.User, column *project_model.Column, issueID int64, sorting *int64) error {
+	// Serialize reorder calculations so concurrent requests cannot allocate the same sorting value.
+	projectIssueMoveMu.Lock()
+	defer projectIssueMoveMu.Unlock()
+
+	return db.WithTx(ctx, func(ctx context.Context) error {
+		nextSorting, err := project_model.GetColumnIssueNextSorting(ctx, column.ProjectID, column.ID)
 		if err != nil {
 			return err
 		}
-		if int(count) != len(sortedIssueIDs) {
-			return errors.New("all issues have to be added to a project first")
+		position := nextSorting
+		if sorting != nil {
+			position = *sorting
 		}
-
-		issues, err := issues_model.GetIssuesByIDs(ctx, issueIDs)
+		if position < 0 || position == math.MaxInt64 {
+			return util.NewInvalidArgumentErrorf("sorting must be between 0 and %d", math.MaxInt64-1)
+		}
+		current := &project_model.ProjectIssue{}
+		exists, err := db.GetEngine(ctx).
+			Where("project_id=? AND issue_id=?", column.ProjectID, issueID).
+			Get(current)
 		if err != nil {
 			return err
 		}
-		if _, err := issues.LoadRepositories(ctx); err != nil {
-			return err
+		if !exists {
+			return util.NewInvalidArgumentErrorf("issue has to be added to project first")
 		}
-
-		project, err := project_model.GetProjectByID(ctx, column.ProjectID)
-		if err != nil {
-			return err
-		}
-
-		issuesMap := make(map[int64]*issues_model.Issue, len(issues))
-		for _, issue := range issues {
-			issuesMap[issue.ID] = issue
-		}
-
-		for sorting, issueID := range sortedIssueIDs {
-			curIssue := issuesMap[issueID]
-			if curIssue == nil {
-				continue
+		if current.ProjectColumnID == column.ID {
+			if position >= nextSorting {
+				position = nextSorting - 1
 			}
-
-			projectColumnMap, err := curIssue.ProjectColumnMap(ctx)
-			if err != nil {
-				return err
-			}
-
-			projectColumnID := projectColumnMap[column.ProjectID]
-
-			if projectColumnID != column.ID {
-				// add timeline to issue
-				if _, err := issues_model.CreateComment(ctx, &issues_model.CreateCommentOptions{
-					Type:               issues_model.CommentTypeProjectColumn,
-					Doer:               doer,
-					Repo:               curIssue.Repo,
-					Issue:              curIssue,
-					ProjectID:          column.ProjectID,
-					ProjectTitle:       project.Title,
-					ProjectColumnID:    column.ID,
-					ProjectColumnTitle: column.Title,
-				}); err != nil {
+			if current.Sorting < position {
+				if _, err := db.GetEngine(ctx).
+					Where("project_id=? AND project_board_id=? AND sorting>? AND sorting<=?", column.ProjectID, column.ID, current.Sorting, position).
+					SetExpr("sorting", "sorting - 1").Update(new(project_model.ProjectIssue)); err != nil {
+					return err
+				}
+			} else if current.Sorting > position {
+				if _, err := db.GetEngine(ctx).
+					Where("project_id=? AND project_board_id=? AND sorting>=? AND sorting<?", column.ProjectID, column.ID, position, current.Sorting).
+					SetExpr("sorting", "sorting + 1").Update(new(project_model.ProjectIssue)); err != nil {
 					return err
 				}
 			}
-
-			// Update the column and sorting for this specific issue in this specific project.
-			// IMPORTANT: The WHERE clause must include both issue_id AND project_id to ensure
-			// that moving an issue's column in one project doesn't affect its column in other
-			// projects when the issue is assigned to multiple projects.
-			_, err = db.GetEngine(ctx).Table("project_issue").
-				Where("issue_id = ? AND project_id = ?", issueID, column.ProjectID).
-				Update(map[string]any{
-					"project_board_id": column.ID,
-					"sorting":          sorting,
-				})
-			if err != nil {
+		} else if position > nextSorting {
+			position = nextSorting
+		}
+		if current.ProjectColumnID != column.ID {
+			if _, err := db.GetEngine(ctx).
+				Where("project_id=? AND project_board_id=? AND sorting>=?", column.ProjectID, column.ID, position).
+				SetExpr("sorting", "sorting + 1").Update(new(project_model.ProjectIssue)); err != nil {
 				return err
 			}
 		}
-		return nil
+		return moveIssuesOnProjectColumn(ctx, doer, column, map[int64]int64{position: issueID})
 	})
+}
+
+func moveIssuesOnProjectColumn(ctx context.Context, doer *user_model.User, column *project_model.Column, sortedIssueIDs map[int64]int64) error {
+	for sorting := range sortedIssueIDs {
+		if sorting < 0 || sorting == math.MaxInt64 {
+			return util.NewInvalidArgumentErrorf("sorting must be between 0 and %d", math.MaxInt64-1)
+		}
+	}
+	issueIDs := make([]int64, 0, len(sortedIssueIDs))
+	for _, issueID := range sortedIssueIDs {
+		issueIDs = append(issueIDs, issueID)
+	}
+	count, err := db.GetEngine(ctx).
+		Where("project_id=?", column.ProjectID).
+		In("issue_id", issueIDs).
+		Count(new(project_model.ProjectIssue))
+	if err != nil {
+		return err
+	}
+	if int(count) != len(sortedIssueIDs) {
+		return util.NewInvalidArgumentErrorf("all issues have to be added to a project first")
+	}
+
+	issues, err := issues_model.GetIssuesByIDs(ctx, issueIDs)
+	if err != nil {
+		return err
+	}
+	if _, err := issues.LoadRepositories(ctx); err != nil {
+		return err
+	}
+
+	project, err := project_model.GetProjectByID(ctx, column.ProjectID)
+	if err != nil {
+		return err
+	}
+
+	issuesMap := make(map[int64]*issues_model.Issue, len(issues))
+	for _, issue := range issues {
+		issuesMap[issue.ID] = issue
+	}
+
+	for sorting, issueID := range sortedIssueIDs {
+		curIssue := issuesMap[issueID]
+		if curIssue == nil {
+			continue
+		}
+
+		projectColumnMap, err := curIssue.ProjectColumnMap(ctx)
+		if err != nil {
+			return err
+		}
+
+		projectColumnID := projectColumnMap[column.ProjectID]
+
+		if projectColumnID != column.ID {
+			// add timeline to issue
+			if _, err := issues_model.CreateComment(ctx, &issues_model.CreateCommentOptions{
+				Type:               issues_model.CommentTypeProjectColumn,
+				Doer:               doer,
+				Repo:               curIssue.Repo,
+				Issue:              curIssue,
+				ProjectID:          column.ProjectID,
+				ProjectTitle:       project.Title,
+				ProjectColumnID:    column.ID,
+				ProjectColumnTitle: column.Title,
+			}); err != nil {
+				return err
+			}
+		}
+
+		// Update the column and sorting for this specific issue in this specific project.
+		// IMPORTANT: The WHERE clause must include both issue_id AND project_id to ensure
+		// that moving an issue's column in one project doesn't affect its column in other
+		// projects when the issue is assigned to multiple projects.
+		_, err = db.GetEngine(ctx).Table("project_issue").
+			Where("issue_id = ? AND project_id = ?", issueID, column.ProjectID).
+			Update(map[string]any{
+				"project_board_id": column.ID,
+				"sorting":          sorting,
+			})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func LoadIssuesAssigneesForProject(ctx context.Context, projectID int64) (users []*user_model.User, _ error) {

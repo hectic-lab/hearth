@@ -149,6 +149,7 @@ in {
   deploy                       = pkgs.callPackage ./deploy                            { inherit inputs; };
   element-web                  = pkgs.callPackage ./element-web                       {};
   shellplot                    = pkgs.callPackage ./shellplot                         {};
+  gitea-kanban-tui             = pkgs.callPackage ./gitea-kanban-tui                  rust.commonArgs;
   which-country-rs             = pkgs.callPackage ./which-country-rs                  {};
   onlinepubs2man               = pkgs.callPackage ./onlinepubs2man                    {};
   migrator                     = pkgs.callPackage ./migrator                          { inherit self; };

@@ -18,20 +18,26 @@
 
 let
   pname = "gitea";
-  version = "1.26.2";
+  version = "1.27.3";
   src = ./source;
   pnpm = pnpm_10;
+  pnpmPatches = [ ./pnpm-engine.patch ];
 
   frontend = stdenv.mkDerivation {
     pname = "gitea-frontend";
     inherit src version;
+    patches = pnpmPatches;
 
     pnpmDeps = fetchPnpmDeps {
       pname = "gitea-frontend";
       inherit version src;
       inherit pnpm;
+      patches = pnpmPatches;
       fetcherVersion = 3;
-      hash = "sha256-Qo0DLuZv+2GVLsBfCv/6CC9E/qhSE4HwV4StQL4HX4Y=";
+      prePnpmInstall = ''
+        pnpm config set engine-strict false
+      '';
+      hash = "sha256-H1sNMKRkoPlkheJFJVaof4bJ4gQHnbhosJaUqj9X8Gg=";
     };
 
     nativeBuildInputs = [
@@ -39,6 +45,10 @@ let
       pnpmConfigHook
       pnpm
     ];
+
+    prePnpmInstall = ''
+      pnpm config set engine-strict false
+    '';
 
     buildPhase = ''
       make frontend
@@ -54,7 +64,8 @@ buildGo126Module rec {
   inherit pname version src;
 
   proxyVendor = true;
-  vendorHash = "sha256-7+M1n8RSgB3gZ/2na4RF9kYOf90H0bnsJZMDKpgAy64=";
+  deleteVendor = true;
+  vendorHash = "sha256-YRBMGWKIZgMxOXaXG2bIBj1XzkhSwiMyfRy+yQGw+Bo=";
 
   outputs = [
     "out"
@@ -63,17 +74,8 @@ buildGo126Module rec {
 
   patches = [ ./static-root-path.patch ];
 
-  overrideModAttrs = _: {
-    postPatch = ''
-      substituteInPlace go.mod \
-        --replace-fail "go 1.26.3" "go 1.26"
-    '';
-  };
-
   postPatch = ''
     substituteInPlace modules/setting/server.go --subst-var data
-    substituteInPlace go.mod \
-      --replace-fail "go 1.26.3" "go 1.26"
   '';
 
   subPackages = [ "." ];
@@ -93,6 +95,7 @@ buildGo126Module rec {
   ];
 
   postInstall = ''
+    mv "$out/bin/gitea.dev" "$out/bin/gitea"
     mkdir $data
     ln -s ${frontend}/public $data/public
     cp -R ./{templates,options} $data

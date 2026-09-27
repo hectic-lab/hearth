@@ -35,3 +35,22 @@ func ToAPIProjectList(projects []*project_model.Project) []*api.Project {
 	}
 	return result
 }
+
+// ToAPIProjectColumn converts a project column to API format
+func ToAPIProjectColumn(column *project_model.Column) *api.ProjectColumn {
+	return &api.ProjectColumn{
+		ID:      column.ID,
+		Title:   column.Title,
+		Color:   column.Color,
+		Sorting: column.Sorting,
+	}
+}
+
+// ToAPIProjectColumnList converts project columns to API format
+func ToAPIProjectColumnList(columns project_model.ColumnList) []*api.ProjectColumn {
+	result := make([]*api.ProjectColumn, len(columns))
+	for i := range columns {
+		result[i] = ToAPIProjectColumn(columns[i])
+	}
+	return result
+}

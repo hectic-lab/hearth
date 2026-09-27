@@ -31,3 +31,26 @@ type Project struct {
 	// swagger:strfmt date-time
 	Closed *time.Time `json:"closed_at,omitempty"`
 }
+
+// ProjectColumn represents a column in a project
+// swagger:model
+type ProjectColumn struct {
+	// ID is the unique identifier for the column
+	ID int64 `json:"id"`
+	// Title is the title of the column
+	Title string `json:"title"`
+	// Color is the optional column color
+	Color string `json:"color"`
+	// Sorting is the column position
+	Sorting int8 `json:"sorting"`
+}
+
+// MoveProjectIssueOption options for moving an issue inside a project
+// swagger:model
+type MoveProjectIssueOption struct {
+	// ColumnID is the destination project column
+	// required: true
+	ColumnID int64 `json:"column_id" binding:"Required"`
+	// Sorting is the optional position inside the destination column
+	Sorting *int64 `json:"sorting,omitempty"`
+}

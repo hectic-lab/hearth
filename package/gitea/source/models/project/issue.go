@@ -6,6 +6,7 @@ package project
 import (
 	"context"
 	"errors"
+	"math"
 
 	"gitea.dev/models/db"
 	"gitea.dev/modules/util"
@@ -45,6 +46,9 @@ func GetColumnIssueNextSorting(ctx context.Context, projectID, columnID int64) (
 		And("project_board_id=?", columnID).
 		Get(&res); err != nil {
 		return 0, err
+	}
+	if res.IssueCount > 0 && res.MaxSorting == math.MaxInt64 {
+		return 0, util.NewInvalidArgumentErrorf("project column sorting is exhausted")
 	}
 	return util.Iif(res.IssueCount > 0, res.MaxSorting+1, 0), nil
 }

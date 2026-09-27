@@ -25,28 +25,30 @@ const ScopeSortPrefix = "scope-"
 
 // IssuesOptions represents options of an issue.
 type IssuesOptions struct { //nolint:revive // export stutter
-	Paginator          *db.ListOptions
-	RepoIDs            []int64 // overwrites RepoCond if the length is not 0
-	AllPublic          bool    // include also all public repositories
-	RepoCond           builder.Cond
-	AssigneeID         string // "(none)" or "(any)" or a user ID
-	PosterID           string // "(none)" or "(any)" or a user ID
-	MentionedID        int64
-	ReviewRequestedID  int64
-	ReviewedID         int64
-	SubscriberID       int64
-	MilestoneIDs       []int64
-	ProjectIDs         []int64
-	IsClosed           optional.Option[bool]
-	IsPull             optional.Option[bool]
-	LabelIDs           []int64
-	IncludedLabelNames []string
-	ExcludedLabelNames []string
-	IncludeMilestones  []string
-	SortType           string
-	IssueIDs           []int64
-	UpdatedAfterUnix   int64
-	UpdatedBeforeUnix  int64
+	Paginator                 *db.ListOptions
+	RepoIDs                   []int64 // overwrites RepoCond if the length is not 0
+	AllPublic                 bool    // include also all public repositories
+	RepoCond                  builder.Cond
+	AssigneeID                string // "(none)" or "(any)" or a user ID
+	PosterID                  string // "(none)" or "(any)" or a user ID
+	MentionedID               int64
+	ReviewRequestedID         int64
+	ReviewedID                int64
+	SubscriberID              int64
+	MilestoneIDs              []int64
+	ProjectIDs                []int64
+	ProjectColumnID           int64
+	ProjectColumnOrUnassigned bool
+	IsClosed                  optional.Option[bool]
+	IsPull                    optional.Option[bool]
+	LabelIDs                  []int64
+	IncludedLabelNames        []string
+	ExcludedLabelNames        []string
+	IncludeMilestones         []string
+	SortType                  string
+	IssueIDs                  []int64
+	UpdatedAfterUnix          int64
+	UpdatedBeforeUnix         int64
 	// prioritize issues from this repo
 	PriorityRepoID int64
 	IsArchived     optional.Option[bool]
@@ -201,7 +203,17 @@ func applyProjectCondition(sess db.Session, opts *IssuesOptions) {
 	if len(projectIDs) == 1 && projectIDs[0] == db.NoConditionID { // show those that are in no project
 		sess.And(builder.NotIn("issue.id", builder.Select("issue_id").From("project_issue")))
 	} else if len(projectIDs) == 1 && projectIDs[0] > 0 { // single specific project
-		sess.Join("INNER", "project_issue", "issue.id = project_issue.issue_id AND project_issue.project_id = ?", projectIDs[0])
+		joinCondition := "issue.id = project_issue.issue_id AND project_issue.project_id = ?"
+		joinArgs := []any{projectIDs[0]}
+		if opts.ProjectColumnID > 0 {
+			if opts.ProjectColumnOrUnassigned {
+				joinCondition += " AND project_issue.project_board_id IN (?, 0)"
+			} else {
+				joinCondition += " AND project_issue.project_board_id = ?"
+			}
+			joinArgs = append(joinArgs, opts.ProjectColumnID)
+		}
+		sess.Join("INNER", "project_issue", joinCondition, joinArgs...)
 	} else if len(projectIDs) > 1 { // multiple projects
 		// FIXME: ISSUE-MULTIPLE-PROJECTS-FILTER: this logic is not right, it should use "AND" but not "OR"
 		sess.And(builder.In("issue.id", builder.Select("issue_id").From("project_issue").Where(builder.In("project_id", projectIDs))))

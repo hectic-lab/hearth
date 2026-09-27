@@ -1,0 +1,13 @@
+diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -1,7 +1,7 @@
+ {
+   "type": "module",
+-  "packageManager": "pnpm@11.9.0",
++  "packageManager": "pnpm@10.12.4",
+   "engines": {
+     "node": ">= 22.18.0",
+-    "pnpm": ">= 11.0.0"
++    "pnpm": ">= 10.0.0"
+   },

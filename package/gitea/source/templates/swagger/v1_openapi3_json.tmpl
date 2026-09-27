@@ -990,6 +990,32 @@
         },
         "description": "PackageList"
       },
+      "ProjectColumnList": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "items": {
+                "$ref": "#/components/schemas/ProjectColumn"
+              },
+              "type": "array"
+            }
+          }
+        },
+        "description": "ProjectColumnList"
+      },
+      "ProjectList": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "items": {
+                "$ref": "#/components/schemas/Project"
+              },
+              "type": "array"
+            }
+          }
+        },
+        "description": "ProjectList"
+      },
       "PublicKey": {
         "content": {
           "application/json": {
@@ -7705,6 +7731,28 @@
         "type": "object",
         "x-go-package": "gitea.dev/modules/structs"
       },
+      "MoveProjectIssueOption": {
+        "description": "MoveProjectIssueOption options for moving an issue inside a project",
+        "properties": {
+          "column_id": {
+            "description": "ColumnID is the destination project column",
+            "format": "int64",
+            "type": "integer",
+            "x-go-name": "ColumnID"
+          },
+          "sorting": {
+            "description": "Sorting is the optional position inside the destination column",
+            "format": "int64",
+            "type": "integer",
+            "x-go-name": "Sorting"
+          }
+        },
+        "required": [
+          "column_id"
+        ],
+        "type": "object",
+        "x-go-package": "gitea.dev/modules/structs"
+      },
       "NewIssuePinsAllowed": {
         "description": "NewIssuePinsAllowed represents an API response that says if new Issue Pins are allowed",
         "properties": {
@@ -8454,6 +8502,35 @@
             "format": "date-time",
             "type": "string",
             "x-go-name": "Updated"
+          }
+        },
+        "type": "object",
+        "x-go-package": "gitea.dev/modules/structs"
+      },
+      "ProjectColumn": {
+        "description": "ProjectColumn represents a column in a project",
+        "properties": {
+          "color": {
+            "description": "Color is the optional column color",
+            "type": "string",
+            "x-go-name": "Color"
+          },
+          "id": {
+            "description": "ID is the unique identifier for the column",
+            "format": "int64",
+            "type": "integer",
+            "x-go-name": "ID"
+          },
+          "sorting": {
+            "description": "Sorting is the column position",
+            "format": "int8",
+            "type": "integer",
+            "x-go-name": "Sorting"
+          },
+          "title": {
+            "description": "Title is the title of the column",
+            "type": "string",
+            "x-go-name": "Title"
           }
         },
         "type": "object",
@@ -10583,6 +10660,10 @@
             "type": "boolean",
             "x-go-name": "HideEmail"
           },
+          "include_private_contributions": {
+            "type": "boolean",
+            "x-go-name": "IncludePrivateContributions"
+          },
           "language": {
             "type": "string",
             "x-go-name": "Language"
@@ -10626,6 +10707,10 @@
             "description": "Privacy",
             "type": "boolean",
             "x-go-name": "HideEmail"
+          },
+          "include_private_contributions": {
+            "type": "boolean",
+            "x-go-name": "IncludePrivateContributions"
           },
           "language": {
             "type": "string",
@@ -26236,6 +26321,249 @@
         "summary": "Mark notification threads as read, pinned or unread on a specific repo",
         "tags": [
           "notification"
+        ]
+      }
+    },
+    "/repos/{owner}/{repo}/projects": {
+      "get": {
+        "operationId": "repoListProjects",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "default": "open",
+              "enum": [
+                "open",
+                "closed",
+                "all"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ProjectList"
+          },
+          "404": {
+            "$ref": "#/components/responses/notFound"
+          }
+        },
+        "summary": "List a repository's projects",
+        "tags": [
+          "project"
+        ]
+      }
+    },
+    "/repos/{owner}/{repo}/projects/{id}/columns": {
+      "get": {
+        "operationId": "repoListProjectColumns",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/ProjectColumnList"
+          },
+          "404": {
+            "$ref": "#/components/responses/notFound"
+          }
+        },
+        "summary": "List a repository project's columns",
+        "tags": [
+          "project"
+        ]
+      }
+    },
+    "/repos/{owner}/{repo}/projects/{id}/columns/{column_id}/issues": {
+      "get": {
+        "operationId": "repoListProjectColumnIssues",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "column_id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/IssueList"
+          },
+          "404": {
+            "$ref": "#/components/responses/notFound"
+          }
+        },
+        "summary": "List issues in a repository project column",
+        "tags": [
+          "project"
+        ]
+      }
+    },
+    "/repos/{owner}/{repo}/projects/{id}/issues/{issue_id}/move": {
+      "post": {
+        "operationId": "repoMoveProjectIssue",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "repo",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "issue_id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveProjectIssueOption"
+              }
+            }
+          },
+          "required": true,
+          "x-originalParamName": "body"
+        },
+        "responses": {
+          "204": {
+            "description": "issue moved"
+          },
+          "403": {
+            "$ref": "#/components/responses/forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/notFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/validationError"
+          }
+        },
+        "summary": "Move an issue to another repository project column",
+        "tags": [
+          "project"
         ]
       }
     },

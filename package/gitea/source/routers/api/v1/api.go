@@ -799,6 +799,17 @@ func mustEnableWiki(ctx *context.APIContext) {
 	}
 }
 
+func mustEnableRepoProjects(ctx *context.APIContext) {
+	if unit.TypeProjects.UnitGlobalDisabled() || !ctx.Repo.Permission.CanRead(unit.TypeProjects) {
+		ctx.APIErrorNotFound()
+		return
+	}
+	projectsUnit := ctx.Repo.Repository.MustGetUnit(ctx, unit.TypeProjects)
+	if !projectsUnit.ProjectsConfig().IsProjectsAllowed(repo_model.ProjectsModeRepo) {
+		ctx.APIErrorNotFound()
+	}
+}
+
 // FIXME: for consistency, maybe most mustNotBeArchived checks should be replaced with mustEnableEditor
 func mustNotBeArchived(ctx *context.APIContext) {
 	if ctx.Repo.Repository.IsArchived {
@@ -1554,6 +1565,12 @@ func Routes() *web.Router {
 			m.Get("/issues/search", repo.SearchIssues)
 
 			m.Group("/{username}/{reponame}", func() {
+				m.Group("/projects", func() {
+					m.Get("", repo.ListProjects)
+					m.Get("/{id}/columns", repo.ListProjectColumns)
+					m.Get("/{id}/columns/{column_id}/issues", repo.ListProjectColumnIssues)
+					m.Post("/{id}/issues/{issue_id}/move", reqToken(), reqRepoWriter(unit.TypeProjects), mustNotBeArchived, bind(api.MoveProjectIssueOption{}), repo.MoveProjectIssue)
+				}, reqRepoReader(unit.TypeProjects), mustEnableRepoProjects)
 				m.Group("/issues", func() {
 					m.Combo("").Get(repo.ListIssues).
 						Post(reqToken(), mustNotBeArchived, bind(api.CreateIssueOption{}), reqRepoReader(unit.TypeIssues), repo.CreateIssue)

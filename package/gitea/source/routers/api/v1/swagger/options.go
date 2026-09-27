@@ -48,6 +48,8 @@ type swaggerParameterBodies struct {
 
 	// in:body
 	IssueLabelsOption api.IssueLabelsOption
+	// in:body
+	MoveProjectIssueOption api.MoveProjectIssueOption
 
 	// in:body
 	CreateKeyOption api.CreateKeyOption
