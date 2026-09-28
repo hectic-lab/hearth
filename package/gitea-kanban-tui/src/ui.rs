@@ -1,11 +1,11 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::app::{App, Column};
-use crate::text::sanitize_terminal_text;
+use crate::app::{App, Column, EditorField, EditorMode, EditorState};
+use crate::text::{sanitize_editor_text, sanitize_terminal_text};
 
 pub fn draw(frame: &mut Frame<'_>, app: &App, repository: &str) {
     let areas = Layout::default()
@@ -36,7 +36,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, repository: &str) {
 
     let help = if app.show_help {
         format!(
-            "{}\n←/h →/l: column  ↑/k ↓/j: card  H/L: move  r: refresh  ?: help  q: quit",
+            "{}\n←/h →/l: column  ↑/k ↓/j: card  H/L: move  n: new  e: edit  d: delete  r: refresh  ?: help  q: quit",
             sanitize_terminal_text(&app.status)
         )
     } else {
@@ -46,6 +46,81 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, repository: &str) {
         )
     };
     frame.render_widget(Paragraph::new(help).wrap(Wrap { trim: true }), areas[3]);
+    if let Some(editor) = &app.editor {
+        draw_editor(frame, editor);
+    }
+}
+
+fn draw_editor(frame: &mut Frame<'_>, editor: &EditorState) {
+    let area = centered_rect(frame.area(), 80, 45);
+    frame.render_widget(Clear, area);
+    let (title, content) = match &editor.mode {
+        EditorMode::Delete {
+            issue_number,
+            title,
+        } => (
+            "Delete issue".to_owned(),
+            format!(
+                "Delete issue #{issue_number} — {}?\n\n[y] confirm  [n/Esc] cancel",
+                sanitize_terminal_text(title)
+            ),
+        ),
+        EditorMode::Create { .. } => (
+            "New issue".to_owned(),
+            editor_content(editor, "Create issue"),
+        ),
+        EditorMode::Edit { issue_number } => (
+            format!("Edit issue #{issue_number}"),
+            editor_content(editor, "Edit issue"),
+        ),
+    };
+    frame.render_widget(
+        Paragraph::new(content)
+            .block(
+                Block::default()
+                    .title(format!(" {title} "))
+                    .borders(Borders::ALL),
+            )
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn editor_content(editor: &EditorState, action: &str) -> String {
+    let title_marker = if editor.field == EditorField::Title {
+        "▶ "
+    } else {
+        "  "
+    };
+    let body_marker = if editor.field == EditorField::Body {
+        "▶ "
+    } else {
+        "  "
+    };
+    format!(
+        "{title_marker}Title: {}\n{body_marker}Body: {}\n\nTab: switch field  Enter: title → body  Ctrl-S: save  Esc: cancel\n{action}",
+        sanitize_terminal_text(&editor.title),
+        sanitize_editor_text(&editor.body)
+    )
+}
+
+fn centered_rect(area: Rect, width_percent: u16, height_percent: u16) -> Rect {
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - height_percent) / 2),
+            Constraint::Percentage(height_percent),
+            Constraint::Percentage((100 - height_percent) / 2),
+        ])
+        .split(area);
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - width_percent) / 2),
+            Constraint::Percentage(width_percent),
+            Constraint::Percentage((100 - width_percent) / 2),
+        ])
+        .split(vertical[1])[1]
 }
 
 fn draw_columns(frame: &mut Frame<'_>, app: &App, area: Rect) {

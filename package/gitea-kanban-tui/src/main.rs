@@ -4,14 +4,16 @@ use std::time::Duration;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 
 use gitea_kanban_tui::api::{resolve_project, GiteaApi, GiteaClient};
-use gitea_kanban_tui::app::{App, MoveAction};
+use gitea_kanban_tui::app::{App, IssueAction, MoveAction};
 use gitea_kanban_tui::config::{Backend, Config};
+use gitea_kanban_tui::model::CreateIssuePayload;
 use gitea_kanban_tui::terminal::TerminalGuard;
+use gitea_kanban_tui::text::sanitize_terminal_text;
 use gitea_kanban_tui::ui;
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("error: {error}");
+        eprintln!("error: {}", sanitize_terminal_text(&error.to_string()));
         std::process::exit(1);
     }
 }
@@ -37,6 +39,13 @@ fn run() -> Result<(), Box<dyn Error>> {
             continue;
         }
 
+        if app.editor.is_some() {
+            if let Some(action) = app.handle_editor_key(key) {
+                issue_action(&client, &config, &mut app, action);
+            }
+            continue;
+        }
+
         match key.code {
             KeyCode::Char('q') => break,
             KeyCode::Left | KeyCode::Char('h') => app.focus_left(),
@@ -45,6 +54,9 @@ fn run() -> Result<(), Box<dyn Error>> {
             KeyCode::Down | KeyCode::Char('j') => app.focus_down(),
             KeyCode::Char('H') => move_card(&client, &mut app, -1),
             KeyCode::Char('L') => move_card(&client, &mut app, 1),
+            KeyCode::Char('n') => app.begin_create(),
+            KeyCode::Char('e') => app.begin_edit(),
+            KeyCode::Char('d') => app.begin_delete(),
             KeyCode::Char('r') => match load_board(&client, &config) {
                 Ok(board) => app = board,
                 Err(error) => app.status = format!("Refresh failed: {error}"),
@@ -54,6 +66,45 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+fn issue_action(client: &impl GiteaApi, config: &Config, app: &mut App, action: IssueAction) {
+    let retry_action = action.clone();
+    let message = match action {
+        IssueAction::Create {
+            project_id,
+            title,
+            body,
+        } => client
+            .create_issue(&CreateIssuePayload {
+                title,
+                body,
+                projects: vec![project_id],
+            })
+            .map(|issue| format!("Created issue #{}", issue.number)),
+        IssueAction::Edit {
+            issue_number,
+            payload,
+        } => client
+            .edit_issue(issue_number, &payload)
+            .map(|_| format!("Updated issue #{issue_number}")),
+        IssueAction::Delete { issue_number } => client
+            .delete_issue(issue_number)
+            .map(|_| format!("Deleted issue #{issue_number}")),
+    };
+    match message {
+        Ok(message) => match load_board(client, config) {
+            Ok(mut board) => {
+                board.status = message;
+                *app = board;
+            }
+            Err(error) => app.status = format!("Saved, refresh failed: {error}"),
+        },
+        Err(error) => {
+            app.restore_issue_action(retry_action);
+            app.status = format!("Issue operation failed: {error}");
+        }
+    }
 }
 
 fn load_board(client: &impl GiteaApi, config: &Config) -> Result<App, Box<dyn Error>> {

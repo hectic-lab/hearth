@@ -1,6 +1,8 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
 use crate::model::{
-    extract_columns, replacement_payload, ColumnSpec, Issue, Label, MoveProjectIssuePayload,
-    Project, ProjectColumn, ReplaceLabelsPayload,
+    extract_columns, replacement_payload, ColumnSpec, EditIssuePayload, Issue, Label,
+    MoveProjectIssuePayload, Project, ProjectColumn, ReplaceLabelsPayload,
 };
 
 #[derive(Clone, Debug)]
@@ -16,7 +18,45 @@ pub struct App {
     pub focused_cards: Vec<usize>,
     pub status: String,
     pub show_help: bool,
+    pub editor: Option<EditorState>,
     backend: BoardBackend,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EditorMode {
+    Create { project_id: u64 },
+    Edit { issue_number: u64 },
+    Delete { issue_number: u64, title: String },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EditorField {
+    Title,
+    Body,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EditorState {
+    pub mode: EditorMode,
+    pub field: EditorField,
+    pub title: String,
+    pub body: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IssueAction {
+    Create {
+        project_id: u64,
+        title: String,
+        body: String,
+    },
+    Edit {
+        issue_number: u64,
+        payload: EditIssuePayload,
+    },
+    Delete {
+        issue_number: u64,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -92,6 +132,7 @@ impl App {
             focused_cards,
             status: "Ready".to_owned(),
             show_help: false,
+            editor: None,
             backend: BoardBackend::Labels {
                 prefix: label_prefix,
             },
@@ -133,6 +174,7 @@ impl App {
             focused_cards,
             status: "Ready".to_owned(),
             show_help: false,
+            editor: None,
             backend: BoardBackend::Projects {
                 project_id: project.id,
             },
@@ -210,10 +252,182 @@ impl App {
         self.focused_column = request.target;
         self.status = format!("Moved issue #{issue_number}");
     }
+
+    pub fn begin_create(&mut self) {
+        if !matches!(&self.backend, BoardBackend::Projects { .. }) {
+            self.status = "Issue editing is available only with --backend projects".to_owned();
+            return;
+        }
+        let project_id = match &self.backend {
+            BoardBackend::Projects { project_id } => *project_id,
+            BoardBackend::Labels { .. } => unreachable!("backend checked above"),
+        };
+        self.editor = Some(EditorState {
+            mode: EditorMode::Create { project_id },
+            field: EditorField::Title,
+            title: String::new(),
+            body: String::new(),
+        });
+    }
+
+    pub fn begin_edit(&mut self) {
+        if !matches!(&self.backend, BoardBackend::Projects { .. }) {
+            self.status = "Issue editing is available only with --backend projects".to_owned();
+            return;
+        }
+        let Some(issue) = self.focused_card().cloned() else {
+            self.status = "No issue selected".to_owned();
+            return;
+        };
+        self.editor = Some(EditorState {
+            mode: EditorMode::Edit {
+                issue_number: issue.number,
+            },
+            field: EditorField::Title,
+            title: issue.title,
+            body: issue.body.unwrap_or_default(),
+        });
+    }
+
+    pub fn begin_delete(&mut self) {
+        if !matches!(&self.backend, BoardBackend::Projects { .. }) {
+            self.status = "Issue editing is available only with --backend projects".to_owned();
+            return;
+        }
+        let Some(issue) = self.focused_card() else {
+            self.status = "No issue selected".to_owned();
+            return;
+        };
+        self.editor = Some(EditorState {
+            mode: EditorMode::Delete {
+                issue_number: issue.number,
+                title: issue.title.clone(),
+            },
+            field: EditorField::Title,
+            title: String::new(),
+            body: String::new(),
+        });
+    }
+
+    pub fn handle_editor_key(&mut self, key: KeyEvent) -> Option<IssueAction> {
+        let mut editor = self.editor.take()?;
+        if matches!(editor.mode, EditorMode::Delete { .. }) {
+            match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    if let EditorMode::Delete { issue_number, .. } = editor.mode {
+                        return Some(IssueAction::Delete { issue_number });
+                    }
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    self.status = "Delete cancelled".to_owned();
+                }
+                _ => {
+                    self.editor = Some(editor);
+                }
+            }
+            return None;
+        }
+
+        if key.code == KeyCode::Esc {
+            self.status = "Edit cancelled".to_owned();
+            return None;
+        }
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s') {
+            return self.submit_editor(editor);
+        }
+        match key.code {
+            KeyCode::Tab => {
+                editor.field = match editor.field {
+                    EditorField::Title => EditorField::Body,
+                    EditorField::Body => EditorField::Title,
+                };
+            }
+            KeyCode::Enter if editor.field == EditorField::Title => {
+                editor.field = EditorField::Body;
+            }
+            KeyCode::Enter => editor.body.push('\n'),
+            KeyCode::Backspace => match editor.field {
+                EditorField::Title => {
+                    editor.title.pop();
+                }
+                EditorField::Body => {
+                    editor.body.pop();
+                }
+            },
+            KeyCode::Char(character) if !character.is_control() => match editor.field {
+                EditorField::Title => editor.title.push(character),
+                EditorField::Body => editor.body.push(character),
+            },
+            _ => {}
+        }
+        self.editor = Some(editor);
+        None
+    }
+
+    pub fn restore_issue_action(&mut self, action: IssueAction) {
+        self.editor = Some(match action {
+            IssueAction::Create {
+                project_id,
+                title,
+                body,
+            } => EditorState {
+                mode: EditorMode::Create { project_id },
+                field: EditorField::Body,
+                title,
+                body,
+            },
+            IssueAction::Edit {
+                issue_number,
+                payload,
+            } => EditorState {
+                mode: EditorMode::Edit { issue_number },
+                field: EditorField::Body,
+                title: payload.title,
+                body: payload.body,
+            },
+            IssueAction::Delete { issue_number } => EditorState {
+                mode: EditorMode::Delete {
+                    issue_number,
+                    title: self
+                        .focused_card()
+                        .map(|issue| issue.title.clone())
+                        .unwrap_or_default(),
+                },
+                field: EditorField::Title,
+                title: String::new(),
+                body: String::new(),
+            },
+        });
+    }
+
+    fn submit_editor(&mut self, editor: EditorState) -> Option<IssueAction> {
+        if editor.title.trim().is_empty() {
+            self.status = "Title cannot be empty".to_owned();
+            self.editor = Some(editor);
+            return None;
+        }
+        match editor.mode {
+            EditorMode::Create { project_id } => Some(IssueAction::Create {
+                project_id,
+                title: editor.title,
+                body: editor.body,
+            }),
+            EditorMode::Edit { issue_number } => Some(IssueAction::Edit {
+                issue_number,
+                payload: EditIssuePayload {
+                    title: editor.title,
+                    body: editor.body,
+                },
+            }),
+            EditorMode::Delete { .. } => None,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
     use super::*;
 
     fn label(id: u64, name: &str) -> Label {
@@ -350,6 +564,44 @@ mod tests {
         ));
         app.apply_move(request);
         assert_eq!(app.columns[1].cards[0].id, 99);
+    }
+
+    #[test]
+    fn native_editor_creates_project_issue_action() {
+        let mut app = App::new_project(
+            Project {
+                id: 8,
+                title: "Kanban".to_owned(),
+                is_closed: false,
+            },
+            vec![ProjectColumn {
+                id: 10,
+                title: "Todo".to_owned(),
+                color: String::new(),
+                sorting: 0,
+            }],
+            vec![Vec::new()],
+        )
+        .expect("board");
+        app.begin_create();
+        for character in "New issue".chars() {
+            app.handle_editor_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        app.handle_editor_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        for character in "Details".chars() {
+            app.handle_editor_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        }
+        let action =
+            app.handle_editor_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
+        assert!(matches!(
+            action,
+            Some(IssueAction::Create {
+                project_id: 8,
+                title,
+                body,
+            }) if title == "New issue" && body == "Details"
+        ));
+        assert!(app.editor.is_none());
     }
 
     #[test]

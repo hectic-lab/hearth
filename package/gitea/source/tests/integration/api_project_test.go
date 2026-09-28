@@ -155,6 +155,19 @@ func TestAPIRepositoryProjects(t *testing.T) {
 		MakeRequest(t, req, http.StatusForbidden)
 	})
 
+	t.Run("ClosedProjectCreate", func(t *testing.T) {
+		project := unittest.AssertExistsAndLoadBean(t, &project_model.Project{ID: 1})
+		require.NoError(t, project_model.ChangeProjectStatus(t.Context(), project, true))
+		defer func() {
+			require.NoError(t, project_model.ChangeProjectStatus(t.Context(), project, false))
+		}()
+		req := NewRequestWithJSON(t, "POST", "/api/v1/repos/user2/repo1/issues", api.CreateIssueOption{
+			Title:    "should be rejected",
+			Projects: []int64{1},
+		}).AddTokenAuth(writeToken)
+		MakeRequest(t, req, http.StatusForbidden)
+	})
+
 	t.Run("ArchivedRepository", func(t *testing.T) {
 		_, err := db.GetEngine(t.Context()).ID(repo.ID).Cols("is_archived").Update(&repo_model.Repository{IsArchived: true})
 		require.NoError(t, err)

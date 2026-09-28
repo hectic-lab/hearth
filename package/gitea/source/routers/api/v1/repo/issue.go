@@ -15,6 +15,7 @@ import (
 	"gitea.dev/models/db"
 	issues_model "gitea.dev/models/issues"
 	access_model "gitea.dev/models/perm/access"
+	project_model "gitea.dev/models/project"
 	repo_model "gitea.dev/models/repo"
 	"gitea.dev/models/unit"
 	user_model "gitea.dev/models/user"
@@ -529,6 +530,38 @@ func GetIssue(ctx *context.APIContext) {
 	ctx.JSON(http.StatusOK, convert.ToAPIIssue(ctx, ctx.Doer, issue))
 }
 
+func validateProjectAssignments(ctx *context.APIContext, projectIDs []int64) (int, string) {
+	if unit.TypeProjects.UnitGlobalDisabled() || !ctx.Repo.Permission.CanWrite(unit.TypeProjects) {
+		return http.StatusForbidden, "project write permission is required"
+	}
+	projectsUnit := ctx.Repo.Repository.MustGetUnit(ctx, unit.TypeProjects)
+	if !projectsUnit.ProjectsConfig().IsProjectsAllowed(repo_model.ProjectsModeRepo) {
+		return http.StatusNotFound, ""
+	}
+	if len(projectIDs) == 0 {
+		return 0, ""
+	}
+	projects, err := project_model.GetProjectsMapByIDs(ctx, projectIDs)
+	if err != nil {
+		return http.StatusInternalServerError, err.Error()
+	}
+	seen := make(map[int64]struct{}, len(projectIDs))
+	for _, projectID := range projectIDs {
+		if _, duplicate := seen[projectID]; duplicate {
+			return http.StatusBadRequest, fmt.Sprintf("project %d is assigned more than once", projectID)
+		}
+		seen[projectID] = struct{}{}
+		project, ok := projects[projectID]
+		if !ok || !project.CanBeAccessedByOwnerRepo(ctx.Repo.Repository.OwnerID, ctx.Repo.Repository) {
+			return http.StatusBadRequest, fmt.Sprintf("project %d is not accessible from this repository", projectID)
+		}
+		if project.IsClosed {
+			return http.StatusForbidden, "project is closed"
+		}
+	}
+	return 0, ""
+}
+
 // CreateIssue create an issue of a repository
 func CreateIssue(ctx *context.APIContext) {
 	// swagger:operation POST /repos/{owner}/{repo}/issues issue issueCreateIssue
@@ -568,6 +601,16 @@ func CreateIssue(ctx *context.APIContext) {
 	//     "$ref": "#/responses/repoArchivedError"
 
 	form := web.GetForm(ctx).(*api.CreateIssueOption)
+	if len(form.Projects) > 0 {
+		if status, message := validateProjectAssignments(ctx, form.Projects); status != 0 {
+			if status == http.StatusInternalServerError {
+				ctx.APIErrorInternal(errors.New(message))
+			} else {
+				ctx.APIError(status, message)
+			}
+			return
+		}
+	}
 	var deadlineUnix timeutil.TimeStamp
 	if form.Deadline != nil && ctx.Repo.Permission.CanWrite(unit.TypeIssues) {
 		deadlineUnix = timeutil.TimeStamp(form.Deadline.Unix())
@@ -726,6 +769,16 @@ func EditIssue(ctx *context.APIContext) {
 	if form.ContentVersion != nil && *form.ContentVersion != issue.ContentVersion {
 		ctx.APIError(http.StatusConflict, issues_model.ErrIssueAlreadyChanged.Error())
 		return
+	}
+	if form.Projects != nil {
+		if status, message := validateProjectAssignments(ctx, *form.Projects); status != 0 {
+			if status == http.StatusInternalServerError {
+				ctx.APIErrorInternal(errors.New(message))
+			} else {
+				ctx.APIError(status, message)
+			}
+			return
+		}
 	}
 
 	if len(form.Title) > 0 {

@@ -1,4 +1,5 @@
 use std::fmt;
+use std::net::IpAddr;
 use std::time::Duration;
 
 use reqwest::blocking::{Client, Response};
@@ -8,7 +9,8 @@ use serde::de::DeserializeOwned;
 
 use crate::config::Config;
 use crate::model::{
-    Issue, Label, MoveProjectIssuePayload, Project, ProjectColumn, ReplaceLabelsPayload,
+    CreateIssuePayload, EditIssuePayload, Issue, Label, MoveProjectIssuePayload, Project,
+    ProjectColumn, ReplaceLabelsPayload,
 };
 use crate::text::sanitize_terminal_text;
 
@@ -33,6 +35,9 @@ pub trait GiteaApi {
         issue_number: u64,
         payload: &ReplaceLabelsPayload,
     ) -> Result<(), ApiError>;
+    fn create_issue(&self, payload: &CreateIssuePayload) -> Result<Issue, ApiError>;
+    fn edit_issue(&self, issue_number: u64, payload: &EditIssuePayload) -> Result<Issue, ApiError>;
+    fn delete_issue(&self, issue_number: u64) -> Result<(), ApiError>;
 }
 
 pub struct GiteaClient {
@@ -85,6 +90,11 @@ impl GiteaClient {
     pub fn new(config: &Config) -> Result<Self, ApiError> {
         let mut api_base = Url::parse(&config.base_url)
             .map_err(|error| ApiError(format!("invalid Gitea URL: {error}")))?;
+        if !api_base.username().is_empty() || api_base.password().is_some() {
+            return Err(ApiError(
+                "Gitea URL must not contain embedded username or password".to_owned(),
+            ));
+        }
         require_secure_transport(&api_base)?;
         api_base.set_query(None);
         api_base.set_fragment(None);
@@ -121,7 +131,7 @@ impl GiteaClient {
         response: Response,
         operation: &str,
     ) -> Result<T, ApiError> {
-        let response = check_response(response, operation)?;
+        let response = check_response(response, operation, &self.token)?;
         response.json().map_err(|error| {
             ApiError(format!(
                 "Gitea returned invalid JSON while {operation}: {error}"
@@ -213,7 +223,7 @@ impl GiteaApi for GiteaClient {
                     "cannot reach Gitea while moving project issue: {error}"
                 ))
             })?;
-        check_response(response, "moving project issue")?;
+        check_response(response, "moving project issue", &self.token)?;
         Ok(())
     }
 
@@ -248,12 +258,60 @@ impl GiteaApi for GiteaClient {
         check_response(
             response,
             &format!("replacing labels on issue #{issue_number}"),
+            &self.token,
+        )?;
+        Ok(())
+    }
+
+    fn create_issue(&self, payload: &CreateIssuePayload) -> Result<Issue, ApiError> {
+        let response = self
+            .client
+            .post(self.endpoint("issues")?)
+            .header("Authorization", format!("token {}", self.token))
+            .json(payload)
+            .send()
+            .map_err(|error| {
+                ApiError(format!("cannot reach Gitea while creating issue: {error}"))
+            })?;
+        self.decode(response, "creating issue")
+    }
+
+    fn edit_issue(&self, issue_number: u64, payload: &EditIssuePayload) -> Result<Issue, ApiError> {
+        let response = self
+            .client
+            .patch(self.endpoint(&format!("issues/{issue_number}"))?)
+            .header("Authorization", format!("token {}", self.token))
+            .json(payload)
+            .send()
+            .map_err(|error| {
+                ApiError(format!(
+                    "cannot reach Gitea while editing issue #{issue_number}: {error}"
+                ))
+            })?;
+        self.decode(response, &format!("editing issue #{issue_number}"))
+    }
+
+    fn delete_issue(&self, issue_number: u64) -> Result<(), ApiError> {
+        let response = self
+            .client
+            .delete(self.endpoint(&format!("issues/{issue_number}"))?)
+            .header("Authorization", format!("token {}", self.token))
+            .send()
+            .map_err(|error| {
+                ApiError(format!(
+                    "cannot reach Gitea while deleting issue #{issue_number}: {error}"
+                ))
+            })?;
+        check_response(
+            response,
+            &format!("deleting issue #{issue_number}"),
+            &self.token,
         )?;
         Ok(())
     }
 }
 
-fn check_response(response: Response, operation: &str) -> Result<Response, ApiError> {
+fn check_response(response: Response, operation: &str, token: &str) -> Result<Response, ApiError> {
     let status = response.status();
     if status.is_success() {
         return Ok(response);
@@ -263,7 +321,8 @@ fn check_response(response: Response, operation: &str) -> Result<Response, ApiEr
         .text()
         .ok()
         .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
-        .and_then(|value| value.get("message")?.as_str().map(sanitize_terminal_text));
+        .and_then(|value| value.get("message")?.as_str().map(sanitize_terminal_text))
+        .map(|message| message.replace(token, "[redacted token]"));
     let detail = message
         .map(|message| format!(": {message}"))
         .unwrap_or_default();
@@ -285,7 +344,15 @@ fn require_secure_transport(url: &Url) -> Result<(), ApiError> {
     if url.scheme() == "https" {
         return Ok(());
     }
-    let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"));
+    let loopback = url
+        .host_str()
+        .and_then(|host| {
+            host.trim_start_matches('[')
+                .trim_end_matches(']')
+                .parse::<IpAddr>()
+                .ok()
+        })
+        .is_some_and(|address| address.is_loopback());
     if url.scheme() == "http" && loopback {
         return Ok(());
     }
@@ -374,7 +441,9 @@ mod tests {
     #[test]
     fn rejects_remote_plain_http_but_allows_loopback() {
         assert!(GiteaClient::new(&config("http://gitea.example")).is_err());
+        assert!(GiteaClient::new(&config("http://localhost:3000")).is_err());
         assert!(GiteaClient::new(&config("http://127.0.0.1:3000")).is_ok());
+        assert!(GiteaClient::new(&config("http://[::1]:3000")).is_ok());
     }
 
     #[test]
@@ -422,7 +491,7 @@ mod tests {
         assert!(first.contains("authorization: token secret"));
 
         let (base_url, _) = mock_server(vec![
-            "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"message\":\"projects unavailable\"}",
+            "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"message\":\"projects unavailable secret\"}",
         ]);
         let client = GiteaClient::new(&config(&base_url)).expect("client");
         let error = client
@@ -469,5 +538,47 @@ mod tests {
         assert_eq!(issues[0].id, 99);
         assert!(requests.recv().expect("page one").contains("page=1"));
         assert!(requests.recv().expect("page two").contains("page=2"));
+    }
+
+    #[test]
+    fn creates_edits_and_deletes_issues() {
+        let (base_url, requests) = mock_server(vec![
+            "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"id\":99,\"number\":7,\"title\":\"New\"}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"id\":99,\"number\":7,\"title\":\"Updated\"}",
+            "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        ]);
+        let client = GiteaClient::new(&config(&base_url)).expect("client");
+        let created = client
+            .create_issue(&CreateIssuePayload {
+                title: "New".to_owned(),
+                body: "Details".to_owned(),
+                projects: vec![4],
+            })
+            .expect("create");
+        assert_eq!(created.number, 7);
+        let edited = client
+            .edit_issue(
+                7,
+                &EditIssuePayload {
+                    title: "Updated".to_owned(),
+                    body: "Changed".to_owned(),
+                },
+            )
+            .expect("edit");
+        assert_eq!(edited.title, "Updated");
+        client.delete_issue(7).expect("delete");
+
+        assert!(requests
+            .recv()
+            .expect("create request")
+            .ends_with("{\"title\":\"New\",\"body\":\"Details\",\"projects\":[4]}"));
+        assert!(requests
+            .recv()
+            .expect("edit request")
+            .starts_with("PATCH /api/v1/repos/owner%20name/repo%2Fname/issues/7 HTTP/1.1"));
+        assert!(requests
+            .recv()
+            .expect("delete request")
+            .starts_with("DELETE /api/v1/repos/owner%20name/repo%2Fname/issues/7 HTTP/1.1"));
     }
 }

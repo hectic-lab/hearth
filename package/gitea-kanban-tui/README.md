@@ -24,8 +24,10 @@ Required configuration can come from flags or environment variables:
 | `--label-prefix` | `GITEA_LABEL_PREFIX` | Column prefix; default `kanban/` |
 
 Native mode requires an enabled repository Projects unit, project read/write
-repository permission, and a token with `read:issue`/`write:issue` scope. Label
-mode requires repository issue read/write permission. Token values are sent
+repository permission, and a token with `read:issue`/`write:issue` scope. Issue
+creation/editing follows Gitea issue permissions; deletion requires repository
+admin permission in this fork. Label mode requires repository issue read/write
+permission. Token values are sent
 only through Gitea's `Authorization` header and are never printed. Token-file
 input takes precedence over environment variables. Remote URLs must use HTTPS; plain HTTP is
 accepted only for loopback development.
@@ -57,7 +59,10 @@ Native mode reads `/projects`, project columns, and each column's issues. Moves
 use the issue's global API `id` and destination column `id`; optional sorting is
 supported by the server API. Project names are exact, case-sensitive matches;
 use `--project-id` when duplicate names exist. Empty native boards render
-normally. Closed projects, archived repositories, disabled Projects units,
+normally. `n` creates an issue assigned to the selected project, `e` edits the
+focused issue title/body, and `d` deletes it after confirmation. In the editor,
+`Enter` switches from title to body, `Tab` switches fields, `Ctrl-S` saves, and
+`Esc` cancels. Closed projects, archived repositories, disabled Projects units,
 unassigned issues, and cross-repository IDs are rejected by the server.
 
 Explicit fallback command:

@@ -19,6 +19,19 @@ pub struct Issue {
     pub labels: Vec<Label>,
 }
 
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct CreateIssuePayload {
+    pub title: String,
+    pub body: String,
+    pub projects: Vec<u64>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct EditIssuePayload {
+    pub title: String,
+    pub body: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ColumnSpec {
     pub id: u64,
@@ -168,6 +181,27 @@ mod tests {
         assert_eq!(
             serde_json::to_value(payload).expect("move payload"),
             serde_json::json!({"column_id": 9, "sorting": 3})
+        );
+    }
+
+    #[test]
+    fn serializes_issue_create_and_edit_payloads() {
+        let create = CreateIssuePayload {
+            title: "New issue".to_owned(),
+            body: "Details".to_owned(),
+            projects: vec![4],
+        };
+        let edit = EditIssuePayload {
+            title: "Updated".to_owned(),
+            body: "Changed".to_owned(),
+        };
+        assert_eq!(
+            serde_json::to_value(create).expect("create payload"),
+            serde_json::json!({"title": "New issue", "body": "Details", "projects": [4]})
+        );
+        assert_eq!(
+            serde_json::to_value(edit).expect("edit payload"),
+            serde_json::json!({"title": "Updated", "body": "Changed"})
         );
     }
 }
