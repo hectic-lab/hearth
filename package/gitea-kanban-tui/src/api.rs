@@ -9,8 +9,7 @@ use serde::de::DeserializeOwned;
 
 use crate::config::Config;
 use crate::model::{
-    CreateIssuePayload, EditIssuePayload, Issue, Label, MoveProjectIssuePayload, Project,
-    ProjectColumn, ReplaceLabelsPayload,
+    CreateIssuePayload, EditIssuePayload, Issue, MoveProjectIssuePayload, Project, ProjectColumn,
 };
 use crate::text::sanitize_terminal_text;
 
@@ -27,13 +26,6 @@ pub trait GiteaApi {
         project_id: u64,
         issue_id: u64,
         payload: &MoveProjectIssuePayload,
-    ) -> Result<(), ApiError>;
-    fn list_labels(&self) -> Result<Vec<Label>, ApiError>;
-    fn list_open_issues(&self) -> Result<Vec<Issue>, ApiError>;
-    fn replace_issue_labels(
-        &self,
-        issue_number: u64,
-        payload: &ReplaceLabelsPayload,
     ) -> Result<(), ApiError>;
     fn create_issue(&self, payload: &CreateIssuePayload) -> Result<Issue, ApiError>;
     fn edit_issue(&self, issue_number: u64, payload: &EditIssuePayload) -> Result<Issue, ApiError>;
@@ -227,42 +219,6 @@ impl GiteaApi for GiteaClient {
         Ok(())
     }
 
-    fn list_labels(&self) -> Result<Vec<Label>, ApiError> {
-        self.get_all("labels", "listing repository labels", &[])
-    }
-
-    fn list_open_issues(&self) -> Result<Vec<Issue>, ApiError> {
-        self.get_all(
-            "issues",
-            "listing open repository issues",
-            &[("state", "open"), ("type", "issues")],
-        )
-    }
-
-    fn replace_issue_labels(
-        &self,
-        issue_number: u64,
-        payload: &ReplaceLabelsPayload,
-    ) -> Result<(), ApiError> {
-        let response = self
-            .client
-            .put(self.endpoint(&format!("issues/{issue_number}/labels"))?)
-            .header("Authorization", format!("token {}", self.token))
-            .json(payload)
-            .send()
-            .map_err(|error| {
-                ApiError(format!(
-                    "cannot reach Gitea while moving issue #{issue_number}: {error}"
-                ))
-            })?;
-        check_response(
-            response,
-            &format!("replacing labels on issue #{issue_number}"),
-            &self.token,
-        )?;
-        Ok(())
-    }
-
     fn create_issue(&self, payload: &CreateIssuePayload) -> Result<Issue, ApiError> {
         let response = self
             .client
@@ -331,7 +287,7 @@ fn check_response(response: Response, operation: &str, token: &str) -> Result<Re
             " Check token validity and repository issue permissions."
         }
         StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED => {
-            " Check repository owner/name and whether this Gitea version supports repository issue-label APIs."
+            " Check repository owner/name and whether this Gitea version supports native project APIs."
         }
         _ => "",
     };
@@ -376,10 +332,8 @@ mod tests {
             token: "secret".to_owned(),
             owner: "owner name".to_owned(),
             repo: "repo/name".to_owned(),
-            backend: crate::config::Backend::Labels,
-            project: None,
+            project: Some("Kanban".to_owned()),
             project_id: None,
-            label_prefix: "kanban/".to_owned(),
         }
     }
 
@@ -433,8 +387,8 @@ mod tests {
             .expect("client should build");
 
         assert_eq!(
-            client.endpoint("labels").expect("endpoint").as_str(),
-            "https://gitea.example/subpath/api/v1/repos/owner%20name/repo%2Fname/labels"
+            client.endpoint("projects").expect("endpoint").as_str(),
+            "https://gitea.example/subpath/api/v1/repos/owner%20name/repo%2Fname/projects"
         );
     }
 

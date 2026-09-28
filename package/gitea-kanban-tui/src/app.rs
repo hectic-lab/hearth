@@ -1,8 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::model::{
-    extract_columns, replacement_payload, ColumnSpec, EditIssuePayload, Issue, Label,
-    MoveProjectIssuePayload, Project, ProjectColumn, ReplaceLabelsPayload,
+    ColumnSpec, EditIssuePayload, Issue, MoveProjectIssuePayload, Project, ProjectColumn,
 };
 
 #[derive(Clone, Debug)]
@@ -19,7 +18,7 @@ pub struct App {
     pub status: String,
     pub show_help: bool,
     pub editor: Option<EditorState>,
-    backend: BoardBackend,
+    project_id: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,22 +58,12 @@ pub enum IssueAction {
     },
 }
 
-#[derive(Clone, Debug)]
-enum BoardBackend {
-    Projects { project_id: u64 },
-    Labels { prefix: String },
-}
-
 #[derive(Debug, PartialEq, Eq)]
 pub enum MoveAction {
     Project {
         issue_id: u64,
         project_id: u64,
         payload: MoveProjectIssuePayload,
-    },
-    Labels {
-        issue_number: u64,
-        payload: ReplaceLabelsPayload,
     },
 }
 
@@ -86,59 +75,6 @@ pub struct MoveRequest {
 }
 
 impl App {
-    pub fn new_labels(
-        labels: Vec<Label>,
-        issues: Vec<Issue>,
-        label_prefix: String,
-    ) -> Result<Self, String> {
-        let specs = extract_columns(&labels, &label_prefix);
-        if specs.is_empty() {
-            return Err(format!(
-                "no Kanban columns found; create repository labels such as {label_prefix}Todo"
-            ));
-        }
-
-        let mut columns: Vec<Column> = specs
-            .into_iter()
-            .map(|spec| Column {
-                spec,
-                cards: Vec::new(),
-            })
-            .collect();
-        for issue in issues {
-            if let Some(column) = columns
-                .iter_mut()
-                .find(|column| issue.labels.iter().any(|label| label.id == column.spec.id))
-            {
-                column.cards.push(issue);
-            }
-        }
-
-        if columns.iter().all(|column| column.cards.is_empty()) {
-            return Err(format!(
-                "no cards found; add a {label_prefix}<column> label to an open issue"
-            ));
-        }
-
-        let focused_column = columns
-            .iter()
-            .position(|column| !column.cards.is_empty())
-            .unwrap_or(0);
-        let focused_cards = vec![0; columns.len()];
-        Ok(Self {
-            board_title: format!("labels {label_prefix}*"),
-            columns,
-            focused_column,
-            focused_cards,
-            status: "Ready".to_owned(),
-            show_help: false,
-            editor: None,
-            backend: BoardBackend::Labels {
-                prefix: label_prefix,
-            },
-        })
-    }
-
     pub fn new_project(
         project: Project,
         project_columns: Vec<ProjectColumn>,
@@ -156,7 +92,6 @@ impl App {
             .map(|(column, cards)| Column {
                 spec: ColumnSpec {
                     id: column.id,
-                    label: None,
                     title: column.title,
                 },
                 cards,
@@ -175,9 +110,7 @@ impl App {
             status: "Ready".to_owned(),
             show_help: false,
             editor: None,
-            backend: BoardBackend::Projects {
-                project_id: project.id,
-            },
+            project_id: project.id,
         })
     }
 
@@ -214,18 +147,12 @@ impl App {
             return None;
         }
         let issue = self.focused_card()?;
-        let action = match &self.backend {
-            BoardBackend::Projects { project_id } => MoveAction::Project {
-                issue_id: issue.id,
-                project_id: *project_id,
-                payload: MoveProjectIssuePayload {
-                    column_id: self.columns[target].spec.id,
-                    sorting: None,
-                },
-            },
-            BoardBackend::Labels { prefix } => MoveAction::Labels {
-                issue_number: issue.number,
-                payload: replacement_payload(issue, prefix, self.columns[target].spec.id),
+        let action = MoveAction::Project {
+            issue_id: issue.id,
+            project_id: self.project_id,
+            payload: MoveProjectIssuePayload {
+                column_id: self.columns[target].spec.id,
+                sorting: None,
             },
         };
         Some(MoveRequest {
@@ -237,14 +164,8 @@ impl App {
 
     pub fn apply_move(&mut self, request: MoveRequest) {
         let selected = self.focused_cards[request.source];
-        let mut issue = self.columns[request.source].cards.remove(selected);
+        let issue = self.columns[request.source].cards.remove(selected);
         let issue_number = issue.number;
-        if let BoardBackend::Labels { prefix } = &self.backend {
-            issue.labels.retain(|label| !label.name.starts_with(prefix));
-            if let Some(label) = &self.columns[request.target].spec.label {
-                issue.labels.push(label.clone());
-            }
-        }
         self.columns[request.target].cards.push(issue);
         self.focused_cards[request.source] =
             selected.min(self.columns[request.source].cards.len().saturating_sub(1));
@@ -254,16 +175,10 @@ impl App {
     }
 
     pub fn begin_create(&mut self) {
-        if !matches!(&self.backend, BoardBackend::Projects { .. }) {
-            self.status = "Issue editing is available only with --backend projects".to_owned();
-            return;
-        }
-        let project_id = match &self.backend {
-            BoardBackend::Projects { project_id } => *project_id,
-            BoardBackend::Labels { .. } => unreachable!("backend checked above"),
-        };
         self.editor = Some(EditorState {
-            mode: EditorMode::Create { project_id },
+            mode: EditorMode::Create {
+                project_id: self.project_id,
+            },
             field: EditorField::Title,
             title: String::new(),
             body: String::new(),
@@ -271,10 +186,6 @@ impl App {
     }
 
     pub fn begin_edit(&mut self) {
-        if !matches!(&self.backend, BoardBackend::Projects { .. }) {
-            self.status = "Issue editing is available only with --backend projects".to_owned();
-            return;
-        }
         let Some(issue) = self.focused_card().cloned() else {
             self.status = "No issue selected".to_owned();
             return;
@@ -290,10 +201,6 @@ impl App {
     }
 
     pub fn begin_delete(&mut self) {
-        if !matches!(&self.backend, BoardBackend::Projects { .. }) {
-            self.status = "Issue editing is available only with --backend projects".to_owned();
-            return;
-        }
         let Some(issue) = self.focused_card() else {
             self.status = "No issue selected".to_owned();
             return;
@@ -430,34 +337,44 @@ mod tests {
 
     use super::*;
 
-    fn label(id: u64, name: &str) -> Label {
-        Label {
-            id,
-            name: name.to_owned(),
-            color: String::new(),
-        }
-    }
-
     fn app() -> App {
-        App::new_labels(
-            vec![label(1, "kanban/01 Todo"), label(2, "kanban/02 Done")],
+        App::new_project(
+            Project {
+                id: 8,
+                title: "Kanban".to_owned(),
+                is_closed: false,
+            },
             vec![
-                Issue {
-                    id: 1,
-                    number: 1,
-                    title: "First".to_owned(),
-                    body: None,
-                    labels: vec![label(1, "kanban/01 Todo"), label(7, "bug")],
+                ProjectColumn {
+                    id: 10,
+                    title: "Todo".to_owned(),
+                    color: String::new(),
+                    sorting: 0,
                 },
-                Issue {
-                    id: 2,
-                    number: 2,
-                    title: "Second".to_owned(),
-                    body: None,
-                    labels: vec![label(1, "kanban/01 Todo")],
+                ProjectColumn {
+                    id: 20,
+                    title: "Done".to_owned(),
+                    color: String::new(),
+                    sorting: 1,
                 },
             ],
-            "kanban/".to_owned(),
+            vec![
+                vec![
+                    Issue {
+                        id: 1,
+                        number: 1,
+                        title: "First".to_owned(),
+                        body: None,
+                    },
+                    Issue {
+                        id: 2,
+                        number: 2,
+                        title: "Second".to_owned(),
+                        body: None,
+                    },
+                ],
+                Vec::new(),
+            ],
         )
         .expect("board builds")
     }
@@ -476,26 +393,6 @@ mod tests {
         app.focus_right();
         assert_eq!(app.focused_cards[0], 1);
         assert_eq!(app.focused_column, 1);
-    }
-
-    #[test]
-    fn move_preparation_and_commit_preserve_non_column_labels() {
-        let mut app = app();
-        let request = app.prepare_move(1).expect("can move right");
-        assert!(matches!(
-            request.action,
-            MoveAction::Labels { ref payload, .. } if payload.labels == vec![7, 2]
-        ));
-
-        app.apply_move(request);
-
-        assert_eq!(app.focused_column, 1);
-        assert_eq!(app.columns[0].cards.len(), 1);
-        assert_eq!(app.columns[1].cards[0].number, 1);
-        assert!(app.columns[1].cards[0]
-            .labels
-            .iter()
-            .any(|label| label.name == "bug"));
     }
 
     #[test]
@@ -551,7 +448,6 @@ mod tests {
                     number: 7,
                     title: "Fix".to_owned(),
                     body: None,
-                    labels: Vec::new(),
                 }],
                 Vec::new(),
             ],
@@ -602,20 +498,5 @@ mod tests {
             }) if title == "New issue" && body == "Details"
         ));
         assert!(app.editor.is_none());
-    }
-
-    #[test]
-    fn label_board_without_cards_keeps_actionable_error() {
-        let result = App::new_labels(
-            vec![label(1, "kanban/Todo"), label(2, "kanban/Done")],
-            Vec::new(),
-            "kanban/".to_owned(),
-        );
-        let error = match result {
-            Ok(_) => panic!("empty board should report missing cards"),
-            Err(error) => error,
-        };
-
-        assert!(error.contains("add a kanban/<column> label"));
     }
 }

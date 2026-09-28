@@ -5,7 +5,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 
 use gitea_kanban_tui::api::{resolve_project, GiteaApi, GiteaClient};
 use gitea_kanban_tui::app::{App, IssueAction, MoveAction};
-use gitea_kanban_tui::config::{Backend, Config};
+use gitea_kanban_tui::config::Config;
 use gitea_kanban_tui::model::CreateIssuePayload;
 use gitea_kanban_tui::terminal::TerminalGuard;
 use gitea_kanban_tui::text::sanitize_terminal_text;
@@ -108,24 +108,14 @@ fn issue_action(client: &impl GiteaApi, config: &Config, app: &mut App, action: 
 }
 
 fn load_board(client: &impl GiteaApi, config: &Config) -> Result<App, Box<dyn Error>> {
-    match config.backend {
-        Backend::Projects => {
-            let projects = client.list_projects()?;
-            let project = resolve_project(&projects, config.project.as_deref(), config.project_id)?;
-            let columns = client.list_project_columns(project.id)?;
-            let issues_by_column = columns
-                .iter()
-                .map(|column| client.list_project_column_issues(project.id, column.id))
-                .collect::<Result<Vec<_>, _>>()?;
-            App::new_project(project, columns, issues_by_column).map_err(|error| error.into())
-        }
-        Backend::Labels => {
-            let labels = client.list_labels()?;
-            let issues = client.list_open_issues()?;
-            App::new_labels(labels, issues, config.label_prefix.clone())
-                .map_err(|error| error.into())
-        }
-    }
+    let projects = client.list_projects()?;
+    let project = resolve_project(&projects, config.project.as_deref(), config.project_id)?;
+    let columns = client.list_project_columns(project.id)?;
+    let issues_by_column = columns
+        .iter()
+        .map(|column| client.list_project_column_issues(project.id, column.id))
+        .collect::<Result<Vec<_>, _>>()?;
+    App::new_project(project, columns, issues_by_column).map_err(|error| error.into())
 }
 
 fn move_card(client: &impl GiteaApi, app: &mut App, offset: isize) {
@@ -139,10 +129,6 @@ fn move_card(client: &impl GiteaApi, app: &mut App, offset: isize) {
             project_id,
             payload,
         } => client.move_project_issue(*project_id, *issue_id, payload),
-        MoveAction::Labels {
-            issue_number,
-            payload,
-        } => client.replace_issue_labels(*issue_number, payload),
     };
     match result {
         Ok(()) => app.apply_move(request),

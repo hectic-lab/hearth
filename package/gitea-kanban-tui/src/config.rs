@@ -5,19 +5,13 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
-use clap::{Parser, ValueEnum};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
-pub enum Backend {
-    Projects,
-    Labels,
-}
+use clap::Parser;
 
 #[derive(Parser)]
 #[command(
     name = "gitea-kanban-tui",
     version,
-    about = "Browse and move Gitea issues using native projects or labels"
+    about = "Browse and move Gitea issues using native projects"
 )]
 pub struct Args {
     /// Gitea base URL; falls back to GITEA_URL
@@ -28,21 +22,13 @@ pub struct Args {
     #[arg(long, value_name = "PATH")]
     pub token_file: Option<PathBuf>,
 
-    /// Board backend: projects or labels
-    #[arg(long, value_enum)]
-    pub backend: Option<Backend>,
-
-    /// Exact native project name; used with --backend projects
+    /// Exact native project name
     #[arg(long)]
     pub project: Option<String>,
 
-    /// Native project ID; used with --backend projects
+    /// Native project ID
     #[arg(long)]
     pub project_id: Option<u64>,
-
-    /// Label prefix used for columns
-    #[arg(long)]
-    pub label_prefix: Option<String>,
 
     /// Repository owner; falls back to GITEA_OWNER
     pub owner: Option<String>,
@@ -57,10 +43,8 @@ pub struct Config {
     pub token: String,
     pub owner: String,
     pub repo: String,
-    pub backend: Backend,
     pub project: Option<String>,
     pub project_id: Option<u64>,
-    pub label_prefix: String,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -98,23 +82,6 @@ impl Config {
             "repository name",
             "REPO argument or GITEA_REPO",
         )?;
-        let backend = if let Some(backend) = args.backend {
-            backend
-        } else if let Some(value) = env_var("GITEA_KANBAN_BACKEND") {
-            match value.as_str() {
-                "projects" => Backend::Projects,
-                "labels" => Backend::Labels,
-                _ => {
-                    return Err(ConfigError(
-                        "GITEA_KANBAN_BACKEND must be 'projects' or 'labels'".to_owned(),
-                    ));
-                }
-            }
-        } else {
-            return Err(ConfigError(
-                "missing board backend; use --backend projects or --backend labels".to_owned(),
-            ));
-        };
         let project = args
             .project
             .or_else(|| env_var("GITEA_PROJECT"))
@@ -123,20 +90,10 @@ impl Config {
         let project_id = args
             .project_id
             .or_else(|| env_var("GITEA_PROJECT_ID").and_then(|value| value.parse::<u64>().ok()));
-        if backend == Backend::Projects && project.is_some() == project_id.is_some() {
+        if project.is_some() == project_id.is_some() {
             return Err(ConfigError(
-                "projects backend requires exactly one of --project/GITEA_PROJECT or --project-id/GITEA_PROJECT_ID"
+                "projects mode requires exactly one of --project/GITEA_PROJECT or --project-id/GITEA_PROJECT_ID"
                     .to_owned(),
-            ));
-        }
-        let label_prefix = args
-            .label_prefix
-            .or_else(|| env_var("GITEA_LABEL_PREFIX"))
-            .unwrap_or_else(|| "kanban/".to_owned());
-
-        if label_prefix.trim().is_empty() {
-            return Err(ConfigError(
-                "label prefix cannot be empty; set --label-prefix or GITEA_LABEL_PREFIX".to_owned(),
             ));
         }
 
@@ -158,10 +115,8 @@ impl Config {
             token,
             owner,
             repo,
-            backend,
             project,
             project_id,
-            label_prefix,
         })
     }
 }
@@ -229,8 +184,8 @@ mod tests {
             "gitea-kanban-tui",
             "--url",
             "https://gitea.example/",
-            "--backend",
-            "labels",
+            "--project",
+            "Kanban",
             "owner",
             "repo",
         ])
@@ -240,8 +195,7 @@ mod tests {
         assert_eq!(config.base_url, "https://gitea.example");
         assert_eq!(config.owner, "owner");
         assert_eq!(config.repo, "repo");
-        assert_eq!(config.label_prefix, "kanban/");
-        assert_eq!(config.backend, Backend::Labels);
+        assert_eq!(config.project.as_deref(), Some("Kanban"));
         assert_eq!(config.token, "secret");
     }
 
@@ -251,8 +205,6 @@ mod tests {
             "gitea-kanban-tui",
             "--url",
             "https://gitea.example",
-            "--backend",
-            "projects",
             "--project",
             "Kanban",
             "owner",
@@ -261,13 +213,12 @@ mod tests {
         .expect("arguments parse");
 
         let config = Config::from_args_with(args, token_env).expect("config is valid");
-        assert_eq!(config.backend, Backend::Projects);
         assert_eq!(config.project.as_deref(), Some("Kanban"));
         assert_eq!(config.project_id, None);
     }
 
     #[test]
-    fn requires_explicit_backend() {
+    fn requires_project_selector() {
         let args = Args::try_parse_from([
             "gitea-kanban-tui",
             "--url",
@@ -277,8 +228,9 @@ mod tests {
         ])
         .expect("arguments parse");
 
-        let error = Config::from_args_with(args, token_env).expect_err("backend is required");
-        assert!(error.to_string().contains("--backend projects"));
+        let error =
+            Config::from_args_with(args, token_env).expect_err("project selector is required");
+        assert!(error.to_string().contains("--project"));
     }
 
     #[test]
@@ -287,8 +239,6 @@ mod tests {
             "gitea-kanban-tui",
             "--url",
             "https://gitea.example",
-            "--backend",
-            "projects",
             "owner",
             "repo",
         ])
@@ -305,17 +255,16 @@ mod tests {
             match name {
                 "GITEA_URL" => Some("https://gitea.example"),
                 "GITEA_TOKEN" => Some("secret"),
-                "GITEA_KANBAN_BACKEND" => Some("labels"),
+                "GITEA_PROJECT" => Some("Kanban"),
                 "GITEA_OWNER" => Some("owner"),
                 "GITEA_REPO" => Some("repo"),
-                "GITEA_LABEL_PREFIX" => Some("board/"),
                 _ => None,
             }
             .map(str::to_owned)
         })
         .expect("config is valid");
 
-        assert_eq!(config.label_prefix, "board/");
+        assert_eq!(config.project.as_deref(), Some("Kanban"));
         assert_eq!(config.owner, "owner");
     }
 
@@ -325,8 +274,8 @@ mod tests {
             "gitea-kanban-tui",
             "--url",
             "https://gitea.example",
-            "--backend",
-            "labels",
+            "--project",
+            "Kanban",
             "owner",
             "repo",
         ])

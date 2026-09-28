@@ -2,7 +2,7 @@
 name = "gitea-kanban-tui"
 version = "0.1.0"
 edition = "2021"
-description = "Native-project and label-backed Gitea Kanban terminal interface"
+description = "Native-project Gitea Kanban terminal interface"
 license = "MIT"
 
 [dependencies]
